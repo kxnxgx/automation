@@ -1,18 +1,22 @@
-# Project: 出荷表自動化敵対的レビュー
+# Project: 出荷明細自動集計マニュアル作成
 
 ## Architecture
-- `run_automation.py` は、入力データ（CSV等）を読み込み、出荷表の自動化処理を実行するPythonスクリプト。
-- `自動化引継ぎ資料.md` は、システム仕様や運用方法、既知の制限事項等を記載したドキュメント。
-- 本プロジェクトの目的は、上記ファイルに潜む脆弱性を特定し、検証用テストを実行し、その結果を `adversarial_review_report.md` にまとめること。
+- `run_automation.py` は、入力データ（CSV）を読み込んで出荷明細の自動集計を行うスクリプト。
+- `実行.bat` は、非エンジニアがダブルクリックで実行できるようにするためのバッチファイル。
+- `verify_all.py` は、自動集計結果（RETAIL_完成版.xlsx）と元のCSVの合計値を比較して検証するスクリプト。
+- 本プロジェクトの目的は、非エンジニア向けに専門用語を排除した分かりやすい取扱説明書（README.md）と、管理用ドキュメントを作成すること。
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status | Conversation ID |
 |---|------|-------|-------------|--------|-----------------|
-| 1 | M1: 静的解析 | `run_automation.py` と `自動化引継ぎ資料.md` のコードおよびドキュメント解析 | なし | DONE | d542cf48-2244-4c3f-b672-4a8d31298713 |
-| 2 | M2: 動的検証 | 不正なCSV等の作成とローカル環境での実行による再現検証 | M1 | DONE | d67b27eb-444b-428e-8c0e-3a64b6128837 |
-| 3 | M3: レポート作成 | 見つかった脆弱性と再現条件を `adversarial_review_report.md` にまとめる | M2 | DONE | 00d5500b-ecc4-4e38-8a13-4ef662fee472 / auditor: e24c423a-30bd-4d4d-ae20-eb36587bd031 |
+| 4 | M4: 調査・検証 | スクリプトおよびバッチの動作・入出力仕様の確認と実証 | なし | DONE | e7915e82-4380-4b37-80d7-0ee2006a8822 |
+| 5 | M5: 管理ドキュメント作成 | `task.md`, `implementation_plan.md`, `walkthrough.md` の作成 | M4 | DONE | 658cb20a-79ef-4bdb-a112-ca45268d7607 |
+| 6 | M6: 取扱説明書作成 | `README.md` の作成 | M5 | DONE | 658cb20a-79ef-4bdb-a112-ca45268d7607 |
+| 7 | M7: 最終検証 | 動作・マニュアル記載内容の突き合わせ検証 | M6 | DONE | 5e00728f-8170-4ca5-bb41-b1b05764c277 |
 
 ## Code Layout
-- `c:\Users\kesuzuki\Desktop\出荷表自動化\run_automation.py` - レビュー対象スクリプト
-- `c:\Users\kesuzuki\Desktop\出荷表自動化\自動化引継ぎ資料.md` - レビュー対象ドキュメント
-- `c:\Users\kesuzuki\Desktop\出荷表自動化\adversarial_review_report.md` - 成果物レポート
+- `C:\Users\kxnxg\OneDrive\デスクトップ\automation\run_automation.py` - メインスクリプト
+- `C:\Users\kxnxg\OneDrive\デスクトップ\automation\実行.bat` - バッチファイル
+- `C:\Users\kxnxg\OneDrive\デスクトップ\automation\verify_all.py` - 検証スクリプト
+- `C:\Users\kxnxg\OneDrive\デスクトップ\automation\README.md` - 取扱説明書（成果物）
+- `C:\Users\kxnxg\antigravity\valiant-oppenheimer\docs\shipment_aggregation_manual\` - 管理用ドキュメント保存先

@@ -1,6 +1,13 @@
 @echo off
 cd /d "%~dp0"
-"C:\Users\kesuzuki\AppData\Local\Python\pythoncore-3.14-64\python.exe" run_automation.py 2>&1
+python run_automation.py 2>&1
+if %ERRORLEVEL% equ 0 (
+    echo.
+    echo -------------------------------------------------------
+    echo  自動数値検証 (CSVの合計値と一致しているかチェック)
+    echo -------------------------------------------------------
+    python verify_all.py
+)
 echo.
 echo ==========================================
 echo Exit code: %ERRORLEVEL%
