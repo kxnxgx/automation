@@ -208,6 +208,68 @@ def load_ec_sales():
     return dict(zip(agg_df[key_col], agg_df["個数"]))
 
 # ============================================================
+# 新規データ抽出用ロード関数
+# ============================================================
+def load_hutte():
+    print("  HUTTE出荷指示 (★出荷指示フォーマット【*】hutte.xlsx) を読み込み中...")
+    pattern = os.path.join(INPUT_DIR, "★出荷指示フォーマット【*】hutte.xlsx")
+    files = glob.glob(pattern)
+    if not files:
+        print("  [情報] HUTTE出荷指示ファイルが見つかりません。")
+        return {}
+    latest_file = max(files, key=os.path.getmtime)
+    try:
+        df = pd.read_excel(latest_file, sheet_name=0, dtype=str)
+        if len(df.columns) > 12:
+            key_col = df.columns[3]
+            val_col = df.columns[12]
+            df = df.dropna(subset=[key_col])
+            df = df[~df[key_col].apply(is_tennen)]
+            return dict(zip(df[key_col].str.strip(), df[val_col]))
+    except Exception as e:
+        print(f"  [警告] HUTTE出荷指示の読み込みに失敗しました: {e}")
+    return {}
+
+def load_zozo_master():
+    print("  ZOZO/OIOIマスタ (商品マスタ-ZOZO-OlOl.xlsx) を読み込み中...")
+    path = os.path.join(INPUT_DIR, "商品マスタ-ZOZO-OlOl.xlsx")
+    if not os.path.exists(path):
+        print("  [情報] ZOZO/OIOIマスタファイルが見つかりません。")
+        return {}, {}
+    try:
+        df = pd.read_excel(path, sheet_name=0, header=1, dtype=str)
+        if len(df.columns) > 27:
+            key_col = df.columns[0]
+            zozo_col = df.columns[26]
+            oioi_col = df.columns[27]
+            df = df.dropna(subset=[key_col])
+            df = df[~df[key_col].apply(is_tennen)]
+            z_dict = dict(zip(df[key_col].str.strip(), df[zozo_col].fillna("")))
+            o_dict = dict(zip(df[key_col].str.strip(), df[oioi_col].fillna("")))
+            return z_dict, o_dict
+    except Exception as e:
+        print(f"  [警告] ZOZO/OIOIマスタの読み込みに失敗しました: {e}")
+    return {}, {}
+
+def load_tokka():
+    print("  特価在庫 (2026特価在庫.xlsx) を読み込み中...")
+    path = os.path.join(INPUT_DIR, "2026特価在庫.xlsx")
+    if not os.path.exists(path):
+        print("  [情報] 特価在庫ファイルが見つかりません。")
+        return {}
+    try:
+        df = pd.read_excel(path, sheet_name=0, dtype=str)
+        if len(df.columns) > 22:
+            key_col = df.columns[2]
+            val_col = df.columns[22]
+            df = df.dropna(subset=[key_col])
+            df = df[~df[key_col].apply(is_tennen)]
+            return dict(zip(df[key_col].str.strip(), df[val_col].fillna("")))
+    except Exception as e:
+        print(f"  [警告] 特価在庫の読み込みに失敗しました: {e}")
+    return {}
+
+# ============================================================
 # 手順1: 出荷予定振分.csv から RETAIL ワークブックの作成
 # ============================================================
 def step1_create_retail_wb():
@@ -245,7 +307,7 @@ def step1_create_retail_wb():
 # ============================================================
 # 手順2: Python直接集計・マージおよび書式適用 (VBA完全代替)
 # ============================================================
-def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict):
+def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict, hutte_dict, zozo_m_dict, oioi_m_dict, tokka_dict):
     print("[手順2] Pythonによる直接マージ＆書式適用 (VBA代替処理)")
     
     if "order" in wb_retail.sheetnames:
@@ -765,10 +827,47 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
             ws_retail[f"{target_col_letter}{r}"] = f"=order!{source_col_letter}{source_row}"
 
     # フィルタと枠固定
-    filter_end_letter = openpyxl.utils.get_column_letter(col_kabusoku_zan)
+    filter_end_letter = openpyxl.utils.get_column_letter(65) # BM列まで
     ws_order.auto_filter.ref = f"A3:{filter_end_letter}{lastRow}"
     ws_order.freeze_panes = "A4"
+
+    # --------------------------------------------------------
+    # 新規列（BH〜BM列）への追加処理
+    # --------------------------------------------------------
+    print("  新規列（希望品、HUTTE、ZOZO、OIOI、特価等）のデータを書き込み中...")
     
+    # ヘッダ設定
+    ws_order["BH3"] = "希望品"
+    ws_order["BI3"] = "HUTTE"
+    ws_order["BJ3"] = "ZOZO"
+    ws_order["BK3"] = "OIOI"
+    ws_order["BL3"] = "R"
+    ws_order["BM3"] = "特価"
+    
+    # ヘッダの書式
+    for c in range(60, 66):
+        cell = ws_order.cell(row=3, column=c)
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        col_letter = openpyxl.utils.get_column_letter(c)
+        ws_order.column_dimensions[col_letter].width = 8
+
+    # データ行書き込み (4行目〜 current_order_row - 1)
+    final_max_row = current_order_row - 1
+    for r in range(4, final_max_row + 1):
+        code_val = ws_order.cell(row=r, column=1).value
+        code_str = str(code_val).strip() if code_val else ""
+        
+        # BI: HUTTE
+        ws_order.cell(row=r, column=61).value = hutte_dict.get(code_str, "")
+        # BJ: ZOZO
+        ws_order.cell(row=r, column=62).value = zozo_m_dict.get(code_str, "")
+        # BK: OIOI
+        ws_order.cell(row=r, column=63).value = oioi_m_dict.get(code_str, "")
+        # BL: R (連番)
+        ws_order.cell(row=r, column=64).value = r - 3
+        # BM: 特価
+        ws_order.cell(row=r, column=65).value = tokka_dict.get(code_str, "")
+
     print("  マージおよび書式適用完了")
 
 # ============================================================
@@ -789,11 +888,16 @@ def main():
         oioi_dict = load_oioi_sales()
         ec_dict = load_ec_sales()
 
+        # 新規ファイルからのデータ抽出
+        hutte_dict = load_hutte()
+        zozo_m_dict, oioi_m_dict = load_zozo_master()
+        tokka_dict = load_tokka()
+
         # 出荷予定振分からベースシートを作成
         wb_retail = step1_create_retail_wb()
         
         # 直接集計結果をマージして書式を設定
-        step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict)
+        step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict, hutte_dict, zozo_m_dict, oioi_m_dict, tokka_dict)
         
         # 最終保存
         retail_xlsx_path = os.path.join(BASE_DIR, "RETAIL_完成版.xlsx")
