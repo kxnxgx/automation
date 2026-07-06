@@ -77,10 +77,13 @@ def show_info(msg):
 def find_single_csv(pattern_keywords, exclude_keywords=None):
     all_csvs = glob.glob(os.path.join(INPUT_DIR, "*.csv"))
     matched = []
+    clean_patterns = [kw.replace(" ", "").replace("　", "") for kw in pattern_keywords]
+    clean_excludes = [ek.replace(" ", "").replace("　", "") for ek in exclude_keywords] if exclude_keywords else []
     for path in all_csvs:
         name = os.path.basename(path)
-        if all(kw in name for kw in pattern_keywords):
-            if exclude_keywords and any(ek in name for ek in exclude_keywords):
+        clean_name = name.replace(" ", "").replace("　", "")
+        if all(kw in clean_name for kw in clean_patterns):
+            if clean_excludes and any(ek in clean_name for ek in clean_excludes):
                 continue
             matched.append(path)
 
@@ -103,6 +106,17 @@ def find_single_csv(pattern_keywords, exclude_keywords=None):
     return matched[0]
 
 # ============================================================
+# tennenブランドの除外判定
+# ============================================================
+def is_tennen(code, brand_name=None):
+    if brand_name and str(brand_name).upper().strip() == "TENNEN":
+        return True
+    if not code:
+        return False
+    c = str(code).upper().strip()
+    return c.startswith("TNT") or c.startswith("TNP") or c.startswith("TNF")
+
+# ============================================================
 # データ集計処理 (Pandasによる直接集計)
 # ============================================================
 def load_store_sales():
@@ -112,6 +126,8 @@ def load_store_sales():
 
     brand_mask = df["表記部門名1"].isin(["FRV", "FJALLRAVEN"])
     df_filtered = df[brand_mask].copy()
+    # tennen除外
+    df_filtered = df_filtered[~df_filtered["3rd Item No."].apply(is_tennen)]
     
     df_filtered["数量"] = pd.to_numeric(df_filtered["数量"], errors="coerce").fillna(0)
     pivot_df = df_filtered.pivot_table(index="3rd Item No.", columns="店舗名称", values="数量", aggfunc="sum").reset_index()
@@ -125,6 +141,9 @@ def get_store_sales_value(pivot_df, code_short, store_name):
     # 部分一致列の検索
     if store_name == 'ヒュッテ':
         matched_cols = [c for c in pivot_df.columns if 'ヒュッテ' in c or 'HUTTE' in c.upper()]
+    elif store_name == 'TOKYO':
+        # TOKYO NODEとの誤混同を防ぐ
+        matched_cols = [c for c in pivot_df.columns if 'TOKYO' in c and 'NODE' not in c]
     else:
         matched_cols = [c for c in pivot_df.columns if store_name in c]
         
@@ -141,6 +160,8 @@ def load_zozo_sales():
 
     brand_mask = df["ブランド名"].isin(["FRV", "FJALLRAVEN"])
     df_filtered = df[brand_mask].copy()
+    # tennen除外
+    df_filtered = df_filtered[~df_filtered["商品コード"].apply(is_tennen)]
 
     df_filtered["販売数量"] = pd.to_numeric(df_filtered["販売数量"], errors="coerce").fillna(0)
     agg_df = df_filtered.groupby("商品コード")["販売数量"].sum().reset_index()
@@ -154,6 +175,9 @@ def load_oioi_sales():
 
     brand_mask = df.get("ブランド名", pd.Series(dtype=str)).isin(["FRV", "FJALLRAVEN"])
     df_filtered = df[brand_mask].copy()
+    # tennen除外
+    if "商品コード" in df_filtered.columns:
+        df_filtered = df_filtered[~df_filtered["商品コード"].apply(is_tennen)]
 
     if "販売数量" in df_filtered.columns and "商品コード" in df_filtered.columns:
         df_filtered["販売数量"] = pd.to_numeric(df_filtered["販売数量"], errors="coerce").fillna(0)
@@ -173,6 +197,13 @@ def load_ec_sales():
     df["個数"] = pd.to_numeric(df["個数"], errors="coerce").fillna(0)
     
     key_col = "オプション独自コード" if "オプション独自コード" in df.columns else "商品コード"
+    # tennen除外
+    brand_col = "ブランド名" if "ブランド名" in df.columns else None
+    if brand_col:
+        df = df[~df.apply(lambda row: is_tennen(row[key_col], row[brand_col]), axis=1)]
+    else:
+        df = df[~df[key_col].apply(is_tennen)]
+
     agg_df = df.groupby(key_col)["個数"].sum().reset_index()
     return dict(zip(agg_df[key_col], agg_df["個数"]))
 
@@ -289,9 +320,14 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
     ws_order["C2"].value = "確保"
     ws_order["C2"].alignment = Alignment(horizontal='center', vertical='center')
     fill_kakubo = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    fill_blue_c2_d3 = PatternFill(start_color="00CCFFFF", end_color="00CCFFFF", fill_type="solid") # 水色
     for r in range(2, 4):
         for c in range(3, 18):
             ws_order.cell(row=r, column=c).fill = fill_kakubo
+    # C2:D3 を水色に上書き
+    for r in range(2, 4):
+        for c in range(3, 5):
+            ws_order.cell(row=r, column=c).fill = fill_blue_c2_d3
 
     # "在庫" ヘッダー (R2:AD2)
     ws_order.merge_cells("R2:AD2")
@@ -518,7 +554,9 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
             order_codes.add(str(val).strip())
 
     # 漏れている（出荷予定にないが売上があった）商品コード
-    leaked_codes = sorted(list(all_sales_codes - order_codes))
+    # 新規追加商品は在庫(C, D, E〜Q)がいずれも0であり、売上が発生すると過不足残が不足赤になります。
+    # 誤発注防止仕様に基づき、これらの商品は売上0（追加対象外）として扱われます。
+    leaked_codes = []
     print(f"  出荷予定にない売上発生商品を追加中... (追加数: {len(leaked_codes)})")
 
     # --------------------------------------------------------
@@ -582,11 +620,11 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
         for col in range(8, 29):
             ws_retail.cell(row=current_retail_row, column=col).value = 0
             
-        # RETAILシートからorderシートへの参照式を設定
-        for c_idx in range(num_formula_cols):
-            target_col_letter = openpyxl.utils.get_column_letter(start_retail_col + c_idx)
-            source_col_letter = openpyxl.utils.get_column_letter(start_order_col + c_idx)
-            ws_retail.cell(row=current_retail_row, column=start_retail_col + c_idx).value = f"=order!{source_col_letter}{current_order_row}"
+        # RETAILシートからorderシートへの参照式を設定 (ORDERエリアの13列分)
+        for c_idx in range(13):
+            target_col_letter = openpyxl.utils.get_column_letter(49 + c_idx) # AWから
+            source_col_letter = openpyxl.utils.get_column_letter(31 + c_idx) # AEから
+            ws_retail.cell(row=current_retail_row, column=49 + c_idx).value = f"=order!{source_col_letter}{current_order_row}"
 
         current_order_row += 1
         current_retail_row += 1
@@ -620,15 +658,34 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
             
         code_short = str(code_short).strip()
 
+        # 売上値の事前計算
+        raw_sales = {}
+        total_sales = 0
         for store_name, col_idx in order_store_map.items():
+            qty = 0
             if store_name == "ZOZO":
-                ws_order.cell(row=r, column=col_idx).value = int(zozo_dict.get(code_short, 0))
+                qty = int(zozo_dict.get(code_short, 0))
             elif store_name == "OIOI":
-                ws_order.cell(row=r, column=col_idx).value = int(oioi_dict.get(code_short, 0))
+                qty = int(oioi_dict.get(code_short, 0))
             elif store_name in ("YSEC", "EC"):
-                ws_order.cell(row=r, column=col_idx).value = int(ec_dict.get(code_short, 0))
+                qty = int(ec_dict.get(code_short, 0))
             else:
-                ws_order.cell(row=r, column=col_idx).value = get_store_sales_value(pivot_df, code_short, store_name)
+                qty = get_store_sales_value(pivot_df, code_short, store_name)
+            raw_sales[store_name] = qty
+            total_sales += qty
+
+        # 在庫不足（C=0 かつ D=0、かつ 確保枠合計 < 売上合計）の判定
+        c_val = ws_order.cell(row=r, column=3).value or 0
+        d_val = ws_order.cell(row=r, column=4).value or 0
+        kabu_sum = sum(ws_order.cell(row=r, column=col).value or 0 for col in range(5, 18))
+
+        if c_val == 0 and d_val == 0 and kabu_sum < total_sales:
+            # 誤発注防止のため、売上をすべて0にする
+            for store_name, col_idx in order_store_map.items():
+                ws_order.cell(row=r, column=col_idx).value = 0
+        else:
+            for store_name, col_idx in order_store_map.items():
+                ws_order.cell(row=r, column=col_idx).value = raw_sales[store_name]
 
     # --------------------------------------------------------
     # 計算式（過不足、過不足残、SUBTOTAL合計）の書き込み
@@ -669,7 +726,7 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
     max_order_col = max(order_store_map.values()) if order_store_map else 43
     for c in range(3, max_order_col + 1):
         col_letter = openpyxl.utils.get_column_letter(c)
-        ws_order.cell(row=1, column=c).value = f"=SUBTOTAL(9,{col_letter}4:{col_letter}{lastRow})"
+        ws_order.cell(row=1, column=c).value = f"=SUBTOTAL(9,{col_letter}4:{col_letter}3500)"
 
     # 幅と非表示設定 (過不足エリアの列インデックスに対して動的に適用)
     kabusoku_cols_indices = list(kabusoku_store_map.values()) + [col_kabusoku_total, col_retail_kakubo, col_kabusoku_zan]
@@ -685,29 +742,27 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
     zan_letter = openpyxl.utils.get_column_letter(col_kabusoku_zan)
     ws_order[f"{zan_letter}3"].value = "過不足"
     ws_order[f"{zan_letter}3"].alignment = Alignment(textRotation=255, horizontal='center', vertical='center')
-    ws_order[f"{zan_letter}3"].fill = PatternFill(start_color="FF0000", fill_type="solid")
+    ws_order[f"{zan_letter}3"].fill = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid") # BG3を赤色に
 
     # 条件付き書式 (過不足マイナスでA列を赤く)
     red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
     rule = FormulaRule(formula=[f"${zan_letter}4<0"], stopIfTrue=False, fill=red_fill)
     ws_order.conditional_formatting.add(f"A4:A{lastRow}", rule)
 
-    # RETAIL シートへの数式展開
+    # RETAIL シートへの数式展開 (AW列から ORDERエリアの13列分を展開)
     lastRowRetail = 5
     for r in range(ws_retail.max_row, 4, -1):
-        if ws_retail.cell(row=r, column=2).value is not None:
+        if ws_retail.cell(row=r, column=4).value is not None:
             lastRowRetail = r
             break
             
     for r in range(5, lastRowRetail + 1):
-        for c_idx in range(num_formula_cols):
-            target_col_letter = openpyxl.utils.get_column_letter(start_retail_col + c_idx)
-            source_col_letter = openpyxl.utils.get_column_letter(start_order_col + c_idx)
+        # ORDERエリアは AE(31) から AQ(43) までの 13列
+        for c_idx in range(13):
+            target_col_letter = openpyxl.utils.get_column_letter(49 + c_idx) # AWから
+            source_col_letter = openpyxl.utils.get_column_letter(31 + c_idx) # AEから
             source_row = r - 1
             ws_retail[f"{target_col_letter}{r}"] = f"=order!{source_col_letter}{source_row}"
-
-    # BJ:BP列削除
-    ws_retail.delete_cols(62, 7)
 
     # フィルタと枠固定
     filter_end_letter = openpyxl.utils.get_column_letter(col_kabusoku_zan)
