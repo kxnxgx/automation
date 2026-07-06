@@ -778,8 +778,9 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
         ws_order.cell(row=r, column=col_kabusoku_total).value = f"=SUMIF({kabusoku_start_let}{r}:{kabusoku_end_let}{r},\"<0\",{kabusoku_start_let}{r}:{kabusoku_end_let}{r})"
         # RETAIL確保
         ws_order.cell(row=r, column=col_retail_kakubo).value = f"=IF({let_kabusoku_total}{r}<0,{let_d}{r}+{let_kabusoku_total}{r},{let_d}{r})"
-        # 過不足残 (NWA残)
-        ws_order.cell(row=r, column=col_kabusoku_zan).value = f"=IF({let_retail_kakubo}{r}<0,{let_c}{r}+{let_retail_kakubo}{r},{let_c}{r})"
+        # 過不足残 (NWA残) - 0の場合は非表示("")
+        nwa_formula = f"IF({let_retail_kakubo}{r}<0,{let_c}{r}+{let_retail_kakubo}{r},{let_c}{r})"
+        ws_order.cell(row=r, column=col_kabusoku_zan).value = f'=IF({nwa_formula}=0,"",{nwa_formula})'
 
     # 1行目の SUBTOTAL 計算式の書き込み
     for c in range(1, ws_order.max_column + 1):
@@ -874,9 +875,9 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
         ws_order.cell(row=r, column=65).value = tokka_val
 
         # --------------------------------------------------------
-        # 在庫(18〜30)・ORDER(31〜max_order_col) の「0」を非表示(None)にする
+        # C, D, 在庫(18〜30), ORDER(31〜max_order_col) の「0」を非表示(None)にする
         # --------------------------------------------------------
-        for c in range(18, max_order_col + 1):
+        for c in [3, 4] + list(range(18, max_order_col + 1)):
             val = ws_order.cell(row=r, column=c).value
             if val == 0 or val == "0" or val == 0.0:
                 ws_order.cell(row=r, column=c).value = None
