@@ -853,6 +853,8 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
 
     # データ行書き込み (4行目〜 current_order_row - 1)
     final_max_row = current_order_row - 1
+    max_order_col = max(order_store_map.values()) if order_store_map else 43
+
     for r in range(4, final_max_row + 1):
         code_val = ws_order.cell(row=r, column=1).value
         code_str = str(code_val).strip() if code_val else ""
@@ -865,8 +867,19 @@ def step2_python_direct_merge(wb_retail, pivot_df, zozo_dict, oioi_dict, ec_dict
         ws_order.cell(row=r, column=63).value = oioi_m_dict.get(code_str, "")
         # BL: R (連番)
         ws_order.cell(row=r, column=64).value = r - 3
-        # BM: 特価
-        ws_order.cell(row=r, column=65).value = tokka_dict.get(code_str, "")
+        # BM: 特価 (0の場合は非表示)
+        tokka_val = tokka_dict.get(code_str, "")
+        if tokka_val == 0 or tokka_val == "0" or tokka_val == 0.0:
+            tokka_val = ""
+        ws_order.cell(row=r, column=65).value = tokka_val
+
+        # --------------------------------------------------------
+        # 在庫(18〜30)・ORDER(31〜max_order_col) の「0」を非表示(None)にする
+        # --------------------------------------------------------
+        for c in range(18, max_order_col + 1):
+            val = ws_order.cell(row=r, column=c).value
+            if val == 0 or val == "0" or val == 0.0:
+                ws_order.cell(row=r, column=c).value = None
 
     print("  マージおよび書式適用完了")
 
