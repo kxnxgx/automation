@@ -1058,7 +1058,10 @@ def run_pipeline(brand_config: BrandConfig, output_file_name, input_dir, base_di
         )
         
         # 最終保存
-        retail_xlsx_path = os.path.join(base_dir, output_file_name)
+        output_dir = os.path.join(base_dir, "output")
+        os.makedirs(output_dir, exist_ok=True)
+        retail_xlsx_path = os.path.join(output_dir, output_file_name)
+        
         if os.path.exists(retail_xlsx_path):
             try:
                 os.remove(retail_xlsx_path)

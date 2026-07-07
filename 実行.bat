@@ -54,6 +54,16 @@ echo.
 echo ==========================================
 echo  Done. (All process completed successfully)
 echo ==========================================
+
+echo.
+echo [Archive] 入力ファイルをアーカイブフォルダへ移動しています...
+set "DT=%DATE:~0,4%%DATE:~5,2%%DATE:~8,2%_%TIME:~0,2%%TIME:~3,2%%TIME:~6,2%"
+set "DT=%DT: =0%"
+set "ARCH_DIR=archive\%DT%"
+if not exist "%ARCH_DIR%" mkdir "%ARCH_DIR%"
+move input\* "%ARCH_DIR%\" > nul
+echo [Archive] 完了しました。
+
 pause
 exit /b 0
 

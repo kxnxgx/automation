@@ -10,7 +10,7 @@ from automation_core import BRAND_FRV, verify_pipeline
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 today_str = datetime.datetime.now().strftime("%Y%m%d")
 OUTPUT_FILE_NAME = f"{today_str} RETAIL FRV.xlsx"
-result_path = os.path.join(BASE_DIR, OUTPUT_FILE_NAME)
+result_path = os.path.join(BASE_DIR, "output", OUTPUT_FILE_NAME)
 input_dir = os.path.join(BASE_DIR, "input")
 
 if __name__ == "__main__":

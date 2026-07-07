@@ -29,7 +29,7 @@ def main():
         output_file = f"{today_str} RETAIL FRV.xlsx"
         input_folder = "input"
 
-    result_path = os.path.join(BASE_DIR, output_file)
+    result_path = os.path.join(BASE_DIR, "output", output_file)
     input_dir = os.path.join(BASE_DIR, input_folder)
 
     print(f"=== {brand_config.name} 差異デバッグ実行中 ===")

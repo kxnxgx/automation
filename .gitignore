@@ -17,3 +17,11 @@ __pycache__/
 
 # Local backup
 temp_backup/
+
+# Input, output, and archive directories
+input/
+output/
+archive/
+
+# Agent configuration and logs
+.agents/
