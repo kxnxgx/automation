@@ -1,22 +1,37 @@
-# Project: 出荷明細自動集計マニュアル作成
+# Project: 出荷表自動化のレビュー・バグ修正・モジュール化
 
 ## Architecture
-- `run_automation.py` は、入力データ（CSV）を読み込んで出荷明細の自動集計を行うスクリプト。
-- `実行.bat` は、非エンジニアがダブルクリックで実行できるようにするためのバッチファイル。
-- `verify_all.py` は、自動集計結果（RETAIL_完成版.xlsx）と元のCSVの合計値を比較して検証するスクリプト。
-- 本プロジェクトの目的は、非エンジニア向けに専門用語を排除した分かりやすい取扱説明書（README.md）と、管理用ドキュメントを作成すること。
+- `run_automation*.py`: 入力データ（CSV）からブランドごとの出荷明細・売上集計を自動作成するスクリプト群（FRV, tennen, hanwag）。
+- `verify_all*.py`: 自動集計結果と元のCSVデータを照合して検証するスクリプト群。
+- `debug_diff.py`: 検証やデバッグ時にデータ差異を特定するための補助スクリプト。
+- `実行*.bat`: 非エンジニアがダブルクリックで各ブランドの集計を実行・検証するためのバッチファイル群。
+- 本プロジェクトの目的:
+  1. `run_automation*.py` に潜む集計バグやエッジケース（マイナス値、ブランドフィルタリング、合算仕様、Excel読み込み等）の特定と修正。
+  2. 重複コード（50行以上）を共有モジュール（`automation_core.py`）に切り出すリファクタリング。
+  3. `verify_all*.py` の統合・共通化、検証項目の強化、`debug_diff.py` の改善。
+  4. バッチファイル（`実行.bat`, `実行_FRV.bat`, `実行_hanwag.bat`, `実行_tennen.bat`）の整合性確認と動作確認。
+  5. 成果物として `docs/REVIEW_REPORT.md` (日本語) の作成と、必要に応じた `README.md` の更新。
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status | Conversation ID |
 |---|------|-------|-------------|--------|-----------------|
-| 4 | M4: 調査・検証 | スクリプトおよびバッチの動作・入出力仕様の確認と実証 | なし | DONE | e7915e82-4380-4b37-80d7-0ee2006a8822 |
-| 5 | M5: 管理ドキュメント作成 | `task.md`, `implementation_plan.md`, `walkthrough.md` の作成 | M4 | DONE | 658cb20a-79ef-4bdb-a112-ca45268d7607 |
-| 6 | M6: 取扱説明書作成 | `README.md` の作成 | M5 | DONE | 658cb20a-79ef-4bdb-a112-ca45268d7607 |
-| 7 | M7: 最終検証 | 動作・マニュアル記載内容の突き合わせ検証 | M6 | DONE | 5e00728f-8170-4ca5-bb41-b1b05764c277 |
+| 8 | M8: 解析とバグ特定 | 各Pythonスクリプトの静的解析とバグ・仕様不整合の特定、リファクタリング方針策定 | なし | DONE | 97c8ab35, 6e2315d7, 790ec4f8 |
+| 9 | M9: バグ修正と共通コードモジュール化 | 共有モジュール `automation_core.py` の作成、各集計スクリプトのリファクタリングおよびバグ修正 | M8 | DONE | be71f419 |
+| 10| M10: 検証・デバッグスクリプトの改善 | `verify_all*.py` の共通モジュール化と検証項目の強化、`debug_diff.py` のリファクタリング・改善 | M9 | DONE | 796e2ca5 |
+| 11| M11: バッチファイルの整合性確認と動作検証 | `実行*.bat` を用いた動作テストと不具合修正、実機検証 | M10 | DONE | a7b5c47e |
+| 12| M12: ドキュメンテーションと最終報告 | `docs/REVIEW_REPORT.md` の作成、`README.md` の更新、監査パス | M11 | DONE | be47c704, b94048ce |
 
 ## Code Layout
-- `C:\Users\kxnxg\OneDrive\デスクトップ\automation\run_automation.py` - メインスクリプト
-- `C:\Users\kxnxg\OneDrive\デスクトップ\automation\実行.bat` - バッチファイル
-- `C:\Users\kxnxg\OneDrive\デスクトップ\automation\verify_all.py` - 検証スクリプト
-- `C:\Users\kxnxg\OneDrive\デスクトップ\automation\README.md` - 取扱説明書（成果物）
-- `C:\Users\kxnxg\antigravity\valiant-oppenheimer\docs\shipment_aggregation_manual\` - 管理用ドキュメント保存先
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\run_automation.py`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\run_automation_tennen.py`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\run_automation_hanwag.py`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\verify_all.py`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\verify_all_tennen.py`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\verify_all_hanwag.py`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\debug_diff.py`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\実行.bat`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\実行_FRV.bat`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\実行_tennen.bat`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\実行_hanwag.bat`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\docs\REVIEW_REPORT.md`
+- `c:\Users\kesuzuki\Desktop\出荷表自動化\README.md`

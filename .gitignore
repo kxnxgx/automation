@@ -2,6 +2,8 @@
 RETAIL.csv
 RETAIL_完成版.xlsx
 RETAIL_*.xlsx
+*RETAIL*.xlsx
+!★RETAIL_テンプレート.xlsx
 
 # Logs
 error.log
