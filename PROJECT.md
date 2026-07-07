@@ -8,9 +8,9 @@
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| 1 | M1: 調査 | 誤発注防止ロジックの現状実装およびテストの動作状況調査 | none | IN_PROGRESS |
-| 2 | M2: 修正とドキュメント更新 | automation_core.py の修正および docs/REVIEW_REPORT.md の更新 | M1 | PLANNED |
-| 3 | M3: 検証 | テストスクリプトの実行およびインテグリティ監査 | M2 | PLANNED |
+| 1 | M1: 調査 | 誤発注防止ロジックの現状実装およびテストの動作状況調査 | none | DONE |
+| 2 | M2: 修正とドキュメント更新 | automation_core.py の修正および docs/REVIEW_REPORT.md の更新 | M1 | DONE |
+| 3 | M3: 検証 | テストスクリプトの実行およびインテグリティ監査 | M2 | DONE |
 
 ## Code Layout
 - `automation_core.py`: 共有モジュール（集計コアロジックおよび誤発注防止ロジックを含む）
