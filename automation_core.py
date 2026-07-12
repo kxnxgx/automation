@@ -66,13 +66,16 @@ def is_target_brand(config: BrandConfig, code, brand_name=None) -> bool:
     ブランド列が存在する場合（brand_nameが渡された場合）は必ずブランド名のみで判定し、
     コードによるフォールバックは行わない。
     """
+    if pd.isna(brand_name) or str(brand_name).strip() == "" or str(brand_name).strip().upper() == "NAN":
+        brand_name = None
+
     # 1. ブランド名が存在する場合 → ブランド名のみで即判定（コード判定へ絶対に落とさない）
     if brand_name is not None and str(brand_name).strip():
         b = str(brand_name).upper().strip()
         return b in config.allowed_names
 
     # 2. ブランド名がない場合のみコードで判定
-    if not code:
+    if not code or pd.isna(code):
         return False
 
     c = str(code).upper().strip()
@@ -89,6 +92,15 @@ def is_target_brand(config: BrandConfig, code, brand_name=None) -> bool:
         return True
 
     return False
+
+def get_brand_name_safe(row):
+    """pandasの行からBrandまたはブランド名を安全に取得する（NaN回避）"""
+    b = row.get("Brand")
+    if pd.isna(b) or str(b).strip() == "" or str(b).strip().upper() == "NAN":
+        b = row.get("ブランド名")
+    if pd.isna(b) or str(b).strip() == "" or str(b).strip().upper() == "NAN":
+        return None
+    return b
 
 # ============================================================
 # GUI / ダイアログ ユーティリティ
@@ -198,9 +210,7 @@ def load_zozo_sales(input_dir, encoding, brand_config: BrandConfig):
     df = pd.read_csv(src, encoding=encoding, header=0, dtype=str)
 
     # ターゲットブランドのみ抽出（Brand列 → ブランド名列 の順で参照）
-    def get_brand(row):
-        return row.get("Brand") or row.get("ブランド名") or None
-    mask = df.apply(lambda row: is_target_brand(brand_config, row["商品コード"], get_brand(row)), axis=1)
+    mask = df.apply(lambda row: is_target_brand(brand_config, row["商品コード"], get_brand_name_safe(row)), axis=1)
     df_filtered = df[mask].copy()
 
     # マイナス値を0に丸める
@@ -217,11 +227,9 @@ def load_oioi_sales(input_dir, encoding, brand_config: BrandConfig):
 
     # ターゲットブランドのみ抽出（Brand列 → ブランド名列 の順で参照）
     if "商品コード" in df.columns:
-        def get_brand_oioi(row):
-            return row.get("Brand") or row.get("ブランド名") or None
-        mask = df.apply(lambda row: is_target_brand(brand_config, row["商品コード"], get_brand_oioi(row)), axis=1)
+        mask = df.apply(lambda row: is_target_brand(brand_config, row["商品コード"], get_brand_name_safe(row)), axis=1)
     else:
-        mask = df.apply(lambda row: is_target_brand(brand_config, None, row.get("Brand") or row.get("ブランド名")), axis=1)
+        mask = df.apply(lambda row: is_target_brand(brand_config, None, get_brand_name_safe(row)), axis=1)
     df_filtered = df[mask].copy()
 
     # マイナス値を0に丸める
@@ -389,11 +397,34 @@ def load_tokka(input_dir, brand_config: BrandConfig):
         if key_col is not None and val_col is not None:
             df = df.dropna(subset=[key_col])
             df[key_col] = df[key_col].astype(str).str.strip()
-            # ターゲットブランドのみ抽出
-            df = df[df[key_col].apply(lambda c: is_target_brand(brand_config, c, None))]
             
-            # 特価数を数値キャストしマイナス値は0丸め
-            df[val_col] = pd.to_numeric(df[val_col], errors="coerce").fillna(0).astype(int).clip(lower=0)
+            # 2026特価在庫.xlsx に Brand/BrandName 列がある場合は is_target_brand で利用する
+            brand_col = None
+            for col in df.columns:
+                if str(col).strip() in ["Brand", "BrandName"]:
+                    brand_col = col
+                    break
+            
+            if brand_col is not None:
+                # ターゲットブランドのみ抽出
+                df = df[df.apply(lambda row: is_target_brand(brand_config, row[key_col], row[brand_col]), axis=1)]
+            else:
+                # ターゲットブランドのみ抽出
+                df = df[df[key_col].apply(lambda c: is_target_brand(brand_config, c, None))]
+            
+            # 特価列の値を取得。文字列（例えば "特価"）や数値を保持するため、無駄な数値キャストを行わない。
+            # ただし、0や0.0、空文字、NaNは除外または空にする。
+            def clean_tokka_val(v):
+                if pd.isna(v):
+                    return ""
+                v_str = str(v).strip()
+                if v_str == "0" or v_str == "0.0" or v_str == "":
+                    return ""
+                return v_str
+
+            df[val_col] = df[val_col].apply(clean_tokka_val)
+            # 空文字でないものだけを辞書にする
+            df = df[df[val_col] != ""]
             
             return dict(zip(df[key_col], df[val_col]))
     except Exception as e:
@@ -886,9 +917,14 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
         # 全チャネルの売上合計で在庫不足を判定し、不足時は全チャネル（ZOZO/OIOI/EC/YSEC含む）をゼロにする
         total_sales_all = sum(raw_sales.values())
 
-        c_val = ws_order.cell(row=r, column=3).value or 0
-        d_val = ws_order.cell(row=r, column=4).value or 0
-        kabu_sum = sum(ws_order.cell(row=r, column=col).value or 0 for col in range(5, 18))
+        def _safe_num(v):
+            if isinstance(v, (int, float)): return v
+            try: return float(v)
+            except (ValueError, TypeError): return 0
+
+        c_val = _safe_num(ws_order.cell(row=r, column=3).value)
+        d_val = _safe_num(ws_order.cell(row=r, column=4).value)
+        kabu_sum = sum(_safe_num(ws_order.cell(row=r, column=col).value) for col in range(5, 18))
 
         if c_val == 0 and d_val == 0 and kabu_sum < total_sales_all:
             # 確保枠が全売上合計を下回る場合、全チャネルの売上を 0 にする
@@ -1173,8 +1209,7 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
     # 1. 元CSVデータのロードと集計
     # ZOZO
     df_zozo = pd.read_csv(zozo_csv, encoding="cp932", dtype=str)
-    def _get_brand_z(row): return row.get("Brand") or row.get("ブランド名") or None
-    mask = df_zozo.apply(lambda row: is_target_brand(brand_config, row["商品コード"], _get_brand_z(row)), axis=1)
+    mask = df_zozo.apply(lambda row: is_target_brand(brand_config, row["商品コード"], get_brand_name_safe(row)), axis=1)
     df_zozo = df_zozo[mask].copy()
     df_zozo["販売数量"] = pd.to_numeric(df_zozo["販売数量"], errors="coerce").fillna(0).clip(lower=0)
     zozo_sales = df_zozo.groupby("商品コード")["販売数量"].sum().to_dict()
