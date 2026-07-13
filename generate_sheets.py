@@ -145,6 +145,9 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     csv_store_names = csv_struct['store_names']
     csv_store_codes = csv_struct['store_codes']
     
+    # RETAILシートの出荷予定日の列 (BQ列=69を最低とし、店舗数Nが多い場合は動的にシフトする)
+    retail_date_col = max(69, 49 + N)
+    
     # 1. BULK不要列の削除 (gap1列分。BULK店舗終端の次から)
     ws_order.delete_cols(N + 5, gap1)
     # 2. 在庫不要列の削除 (gap2列分。在庫店舗終端の次から)
@@ -478,7 +481,7 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
             source_col_letter = openpyxl.utils.get_column_letter(order_start_col + c_idx)
             ws_retail.cell(row=current_retail_row, column=49 + c_idx).value = f"=order!{source_col_letter}{current_order_row}"
             
-        ws_retail.cell(row=current_retail_row, column=49 + N).value = int(datetime.datetime.now().strftime("%Y%m%d"))
+        ws_retail.cell(row=current_retail_row, column=retail_date_col).value = int(datetime.datetime.now().strftime("%Y%m%d"))
 
         current_order_row += 1
         current_retail_row += 1
@@ -610,12 +613,12 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
             source_row = r - 1
             ws_retail[f"{target_col_letter}{r}"] = f"=order!{source_col_letter}{source_row}"
         
-        ws_retail.cell(row=r, column=49 + N).value = int(datetime.datetime.now().strftime("%Y%m%d"))
+        ws_retail.cell(row=r, column=retail_date_col).value = int(datetime.datetime.now().strftime("%Y%m%d"))
         
     retail_col_start = 49
-    retail_date_col  = 49 + N
+    num_slots = retail_date_col - retail_col_start
     
-    for c_idx in range(N):
+    for c_idx in range(num_slots):
         ws_retail.cell(row=2, column=retail_col_start + c_idx).value = "出荷指示数"
     ws_retail.cell(row=2, column=retail_date_col).value = "出荷予定日"
     
