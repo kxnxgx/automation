@@ -171,6 +171,8 @@ def load_store_sales(input_dir, encoding, brand_config: BrandConfig):
     print("  店舗売上 (営業日付別売上分析) を集計中...")
     src = find_single_csv(input_dir, ["営業日付別売上分析"])
     df = pd.read_csv(src, encoding=encoding, header=0, dtype=str)
+    if df.empty:
+        return None
 
     # ターゲットブランドのみ抽出
     mask = df.apply(lambda row: is_target_brand(brand_config, row["3rd Item No."], row.get("表記部門名1")), axis=1)
@@ -184,7 +186,9 @@ def load_store_sales(input_dir, encoding, brand_config: BrandConfig):
     return pivot_df
 
 def get_store_sales_value(pivot_df, code_short, store_name):
-    if pivot_df is None or code_short not in pivot_df["3rd Item No."].values:
+    if pivot_df is None or pivot_df.empty or "3rd Item No." not in pivot_df.columns:
+        return 0
+    if code_short not in pivot_df["3rd Item No."].values:
         return 0
     row_df = pivot_df[pivot_df["3rd Item No."] == code_short]
     
@@ -208,6 +212,8 @@ def load_zozo_sales(input_dir, encoding, brand_config: BrandConfig):
     print("  ZOZO売上 (卸売上明細) を集計中...")
     src = find_single_csv(input_dir, ["卸売上明細"], exclude_keywords=["卸売上明細 (1)", "卸売上明細(1)"])
     df = pd.read_csv(src, encoding=encoding, header=0, dtype=str)
+    if df.empty:
+        return {}
 
     # ターゲットブランドのみ抽出（Brand列 → ブランド名列 の順で参照）
     mask = df.apply(lambda row: is_target_brand(brand_config, row["商品コード"], get_brand_name_safe(row)), axis=1)
@@ -224,6 +230,8 @@ def load_oioi_sales(input_dir, encoding, brand_config: BrandConfig):
     print("  OIOI売上 (卸売上明細 (1)) を集計中...")
     src = find_single_csv(input_dir, ["卸売上明細 (1)"])
     df = pd.read_csv(src, encoding=encoding, header=0, dtype=str)
+    if df.empty:
+        return {}
 
     # ターゲットブランドのみ抽出（Brand列 → ブランド名列 の順で参照）
     if "商品コード" in df.columns:
@@ -244,6 +252,8 @@ def load_ec_sales(input_dir, encoding, brand_config: BrandConfig):
     print("  EC売上 (order_*) を集計中...")
     src = find_single_csv(input_dir, ["order_"])
     df = pd.read_csv(src, encoding=encoding, header=0, dtype=str)
+    if df.empty:
+        return {}
 
     df = df[~df["決済方法(ステータス)"].str.contains("キャンセル", na=False)]
     df = df[~df["注文者"].str.contains("店舗客注", na=False)]
@@ -279,6 +289,8 @@ def load_hutte(input_dir, brand_config: BrandConfig):
     latest_file = max(files, key=os.path.getmtime)
     try:
         df = pd.read_excel(latest_file, sheet_name=0, dtype=str)
+        if df.empty:
+            return {}
         
         # 列の動的特定
         key_col = None
@@ -327,6 +339,8 @@ def load_zozo_master(input_dir, brand_config: BrandConfig):
     try:
         # header=1 (2行目)
         df = pd.read_excel(path, sheet_name=0, header=1, dtype=str)
+        if df.empty:
+            return {}, {}
         
         # 列の動的特定
         key_col = None
@@ -378,6 +392,8 @@ def load_tokka(input_dir, brand_config: BrandConfig):
         return {}
     try:
         df = pd.read_excel(path, sheet_name=0, dtype=str)
+        if df.empty:
+            return {}
         
         # 列の動的特定
         key_col = None
@@ -439,6 +455,46 @@ def step1_create_retail_wb(input_dir, encoding, brand_config: BrandConfig):
     src = find_single_csv(input_dir, ["出荷予定振分"])
     df = pd.read_csv(src, encoding=encoding, header=0, dtype=str)
     
+    # ======== フォーマット変動検証 ========
+    # 現在の自動化スクリプトは以下の列配置に強く依存しています
+    # df.iloc[2] の index 8 〜 20 (13列) が各店舗
+    # index 21 〜 27 (7列) が NaN (空列)
+    # index 28 が 'ZOZO' (現在庫の先頭)
+    try:
+        bulk_store_1 = str(df.iloc[2].values[8]).strip()
+        zaiko_store_1 = str(df.iloc[2].values[28]).strip()
+        order_store_1 = str(df.iloc[2].values[48]).strip()
+        
+        is_valid = (bulk_store_1 == zaiko_store_1 == order_store_1)
+        for i in range(21, 28):
+            if not pd.isna(df.iloc[2].values[i]):
+                is_valid = False
+                break
+                
+        if not is_valid:
+            raise ValueError("Format mismatch")
+    except Exception:
+        error_msg = f"""
+【フォーマット変更エラー】
+CSVの列構成（店舗数など）が変更されたため、誤発注防止のため処理を安全に停止しました。
+以下のテキストをコピーして、AIアシスタントにそのまま貼り付けてください。
+
+---ここから---
+AIアシスタントへ。出荷予定振分.csvのフォーマットが変更されたようです。
+現在のCSVの店舗数（BULKと現在庫の間の列数）が変わっている可能性があります。
+以下のヘッダー情報を元に、automation_core.pyの delete_cols の数値を動的に計算するように修正するか、新しい店舗数に合わせてロジックを書き換えてください。
+
+[現在の df.iloc[2] の内容 (先頭60列)]
+{list(df.iloc[2].values[:60])}
+---ここまで---
+"""
+        print(error_msg)
+        with open("error_prompt.txt", "w", encoding="utf-8") as f:
+            f.write(error_msg)
+        import sys
+        sys.exit(1)
+    # ====================================
+    
     # ======== 自ブランドのみ抽出フィルタリング ========
     if len(df) > 3:
         df_headers = df.iloc[:3].copy()
@@ -463,7 +519,7 @@ def step1_create_retail_wb(input_dir, encoding, brand_config: BrandConfig):
     for r_idx, row in enumerate(df.values.tolist(), start=2):
         for c_idx, val in enumerate(row, start=1):
             if pd.isna(val) if isinstance(val, float) else val is None:
-                ws.cell(row=r_idx, column=c_idx).value = ""
+                ws.cell(row=r_idx, column=c_idx).value = None
             else:
                 if isinstance(val, str):
                     try:
@@ -491,9 +547,9 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
 
     ws_retail = wb_retail["RETAIL"]
     
-    # AW1:BY[max_row] をクリア (10000行ループを実際の最終行に削減)
+    # AW列以降のデータ行をクリア (1〜4行目はヘッダーなので保持し、5行目からクリア)
     max_r_retail = max(ws_retail.max_row, 1)
-    for r in range(1, max_r_retail + 1):
+    for r in range(5, max_r_retail + 1):
         for c in range(49, 78):
             ws_retail.cell(row=r, column=c).value = None
             
@@ -531,7 +587,7 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     # A列の書式適用
     for row in range(1, ws_order.max_row + 1):
         cell = ws_order.cell(row=row, column=1)
-        cell.number_format = '#,##0;[Red](#,##0)'
+        cell.number_format = 'General'
         cell.alignment = Alignment(horizontal='left', vertical='center')
 
     # B列幅設定
@@ -866,6 +922,9 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
             target_col_letter = openpyxl.utils.get_column_letter(49 + c_idx)
             source_col_letter = openpyxl.utils.get_column_letter(31 + c_idx)
             ws_retail.cell(row=current_retail_row, column=49 + c_idx).value = f"=order!{source_col_letter}{current_order_row}"
+            
+        # BQ列(69列目)に日付を出力
+        ws_retail.cell(row=current_retail_row, column=69).value = int(datetime.datetime.now().strftime("%Y%m%d"))
 
         current_order_row += 1
         current_retail_row += 1
@@ -991,6 +1050,7 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     ws_order[f"{zan_letter}3"].fill = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid")
 
     # 条件付き書式
+    ws_order.conditional_formatting._cf_rules.clear()
     red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
     rule = FormulaRule(formula=[f"${zan_letter}4<0"], stopIfTrue=False, fill=red_fill)
     ws_order.conditional_formatting.add(f"A4:A{lastRow}", rule)
@@ -1003,11 +1063,33 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
             break
             
     for r in range(5, lastRowRetail + 1):
-        for c_idx in range(13):
+        for c_idx in range(13): # 13列分の参照を復元
             target_col_letter = openpyxl.utils.get_column_letter(49 + c_idx)
             source_col_letter = openpyxl.utils.get_column_letter(31 + c_idx)
             source_row = r - 1
             ws_retail[f"{target_col_letter}{r}"] = f"=order!{source_col_letter}{source_row}"
+        
+        # BQ列(69列目)に日付を出力
+        ws_retail.cell(row=r, column=69).value = int(datetime.datetime.now().strftime("%Y%m%d"))
+        
+    # RETAILシート AW〜BQ列のヘッダー行(1〜3行目)を明示的に出力
+    for c_idx in range(20):
+        ws_retail.cell(row=1, column=49 + c_idx).value = "出荷指示数"
+    ws_retail.cell(row=1, column=69).value = "出荷予定日"
+    
+    store_code_map = {
+        "ZOZO": 201050, "名古屋": 201127, "丸井web": 201223, "YSEC": 201236,
+        "TOKYO": 201268, "ルクア大阪": 201499, "ヒュッテ": 201549, "京王新宿": 201684,
+        "6142": 201703, "玉川高島屋": 201716, "NODE": 201720, "大丸心斎橋": 201738, "NARITA": 201762
+    }
+    
+    for c_idx in range(13):
+        store_name = ws_order.cell(row=3, column=31 + c_idx).value
+        # 店舗名出力
+        ws_retail.cell(row=3, column=49 + c_idx).value = store_name
+        # 店舗コード出力
+        if store_name in store_code_map:
+            ws_retail.cell(row=2, column=49 + c_idx).value = store_code_map[store_name]
 
     # フィルタと枠固定
     filter_end_letter = openpyxl.utils.get_column_letter(65)
@@ -1209,8 +1291,9 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
     # 1. 元CSVデータのロードと集計
     # ZOZO
     df_zozo = pd.read_csv(zozo_csv, encoding="cp932", dtype=str)
-    mask = df_zozo.apply(lambda row: is_target_brand(brand_config, row["商品コード"], get_brand_name_safe(row)), axis=1)
-    df_zozo = df_zozo[mask].copy()
+    if not df_zozo.empty:
+        mask = df_zozo.apply(lambda row: is_target_brand(brand_config, row["商品コード"], get_brand_name_safe(row)), axis=1)
+        df_zozo = df_zozo[mask].copy()
     df_zozo["販売数量"] = pd.to_numeric(df_zozo["販売数量"], errors="coerce").fillna(0).clip(lower=0)
     zozo_sales = df_zozo.groupby("商品コード")["販売数量"].sum().to_dict()
 
@@ -1219,19 +1302,21 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
     if oioi_csv:
         df_oioi = pd.read_csv(oioi_csv, encoding="cp932", dtype=str)
         def _get_brand_o(row): return row.get("Brand") or row.get("ブランド名") or None
-        if "商品コード" in df_oioi.columns:
-            mask = df_oioi.apply(lambda row: is_target_brand(brand_config, row["商品コード"], _get_brand_o(row)), axis=1)
-        else:
-            mask = df_oioi.apply(lambda row: is_target_brand(brand_config, None, _get_brand_o(row)), axis=1)
-        df_oioi = df_oioi[mask].copy()
+        if not df_oioi.empty:
+            if "商品コード" in df_oioi.columns:
+                mask = df_oioi.apply(lambda row: is_target_brand(brand_config, row["商品コード"], _get_brand_o(row)), axis=1)
+            else:
+                mask = df_oioi.apply(lambda row: is_target_brand(brand_config, None, _get_brand_o(row)), axis=1)
+            df_oioi = df_oioi[mask].copy()
         df_oioi["販売数量"] = pd.to_numeric(df_oioi["販売数量"], errors="coerce").fillna(0).clip(lower=0)
         if "商品コード" in df_oioi.columns:
             oioi_sales = df_oioi.groupby("商品コード")["販売数量"].sum().to_dict()
 
     # 店舗
     df_store = pd.read_csv(store_csv, encoding="cp932", dtype=str)
-    mask = df_store.apply(lambda row: is_target_brand(brand_config, row["3rd Item No."], row.get("表記部門名1")), axis=1)
-    df_store = df_store[mask].copy()
+    if not df_store.empty:
+        mask = df_store.apply(lambda row: is_target_brand(brand_config, row["3rd Item No."], row.get("表記部門名1")), axis=1)
+        df_store = df_store[mask].copy()
     df_store["数量"] = pd.to_numeric(df_store["数量"], errors="coerce").fillna(0).clip(lower=0)
     store_pivot = df_store.pivot_table(index="3rd Item No.", columns="店舗名称", values="数量", aggfunc="sum").fillna(0)
 
@@ -1243,11 +1328,12 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
     key_col = "オプション独自コード" if "オプション独自コード" in df_ec.columns else "商品コード"
     df_ec = df_ec[~df_ec[key_col].fillna("").str.contains("GIFT", na=False)]
     brand_col = "ブランド名" if "ブランド名" in df_ec.columns else None
-    if brand_col:
-        mask = df_ec.apply(lambda row: is_target_brand(brand_config, row[key_col], row[brand_col]), axis=1)
-    else:
-        mask = df_ec[key_col].apply(lambda c: is_target_brand(brand_config, c, None))
-    df_ec = df_ec[mask]
+    if not df_ec.empty:
+        if brand_col:
+            mask = df_ec.apply(lambda row: is_target_brand(brand_config, row[key_col], row[brand_col]), axis=1)
+        else:
+            mask = df_ec[key_col].apply(lambda c: is_target_brand(brand_config, c, None))
+        df_ec = df_ec[mask]
     ec_sales = df_ec.groupby(key_col)["個数"].sum().to_dict()
 
     # Excelワークブックの読み込み
