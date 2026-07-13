@@ -616,18 +616,18 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     retail_date_col  = 49 + N
     
     for c_idx in range(N):
-        ws_retail.cell(row=1, column=retail_col_start + c_idx).value = "出荷指示数"
-    ws_retail.cell(row=1, column=retail_date_col).value = "出荷予定日"
+        ws_retail.cell(row=2, column=retail_col_start + c_idx).value = "出荷指示数"
+    ws_retail.cell(row=2, column=retail_date_col).value = "出荷予定日"
     
     for c_idx in range(N):
         if c_idx < len(csv_store_names):
             store_name = csv_store_names[c_idx]
             store_code = csv_store_codes[c_idx]
-            ws_retail.cell(row=3, column=retail_col_start + c_idx).value = store_name
+            ws_retail.cell(row=4, column=retail_col_start + c_idx).value = store_name
             try:
-                ws_retail.cell(row=2, column=retail_col_start + c_idx).value = int(store_code)
+                ws_retail.cell(row=3, column=retail_col_start + c_idx).value = int(store_code)
             except (ValueError, TypeError):
-                ws_retail.cell(row=2, column=retail_col_start + c_idx).value = store_code
+                ws_retail.cell(row=3, column=retail_col_start + c_idx).value = store_code
 
     extra_col_start = col_kabusoku_zan + 1
     col_kibou = extra_col_start
