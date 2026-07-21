@@ -8,7 +8,7 @@ import os
 import glob
 import pandas as pd
 from config import AutomationError, BrandConfig
-from utils import find_single_csv, is_target_brand, get_brand_name_safe
+from utils import find_single_csv, is_target_brand, get_brand_name_safe, is_store_match
 
 # ============================================================
 # データ集計処理
@@ -38,14 +38,8 @@ def get_store_sales_value(pivot_df, code_short, store_name):
         return 0
     row_df = pivot_df[pivot_df["3rd Item No."] == code_short]
     
-    # 部分一致列の検索
-    if store_name == 'ヒュッテ':
-        matched_cols = [c for c in pivot_df.columns if 'ヒュッテ' in c or 'HUTTE' in c.upper()]
-    elif store_name == 'TOKYO':
-        # TOKYO NODEとの誤混同を防ぐ
-        matched_cols = [c for c in pivot_df.columns if 'TOKYO' in c and 'NODE' not in c]
-    else:
-        matched_cols = [c for c in pivot_df.columns if store_name in c]
+    # 共通の曖昧マッチング関数を使用して対象列を特定
+    matched_cols = [c for c in pivot_df.columns if is_store_match(c, store_name)]
         
     if not matched_cols:
         return 0
@@ -149,12 +143,21 @@ def load_hutte(input_dir, brand_config: BrandConfig):
         if key_col is None and len(df.columns) > 3:
             key_col = df.columns[3]
             
+        # val_col の検出: 「出荷指示数」完全一致を最優先し、次に値が入っている数量系列、最後に列インデックス12
+        # ※「受注数」など値が空の列が先にマッチしBI列が0になる問題を防ぐため、完全一致を優先する
         for col in df.columns:
-            col_str = str(col).strip()
-            col_lower = col_str.lower()
-            if any(kw in col_lower for kw in ["数量", "指示数", "出荷数", "個数", "枚数", "qty", "quantity"]):
+            if str(col).strip() == "出荷指示数":
                 val_col = col
                 break
+        if val_col is None:
+            for col in df.columns:
+                col_str = str(col).strip()
+                col_lower = col_str.lower()
+                if any(kw in col_lower for kw in ["数量", "指示数", "出荷数", "個数", "枚数", "qty", "quantity"]):
+                    # 値が実際に入っている列のみ採用する
+                    if df[col].notna().any():
+                        val_col = col
+                        break
         if val_col is None and len(df.columns) > 12:
             val_col = df.columns[12]
 

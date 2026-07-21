@@ -82,10 +82,33 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
 
     ws_retail = wb_retail["RETAIL"]
     
-    # AW列以降のデータ行をクリア (1〜4行目はヘッダーなので保持し、5行目からクリア)
+    # 店舗構造を解析して、RETAILシートでの出荷指示エリアの開始列を動的に決定する
+    csv_struct = parse_csv_store_structure(input_dir, "cp932")
+    N_struct = csv_struct['N']
+    gap1_struct = csv_struct['gap1']
+    gap2_struct = csv_struct['gap2']
+    
+    # 出荷指示エリアの開始列 = 2 * N + gap1 + gap2 + 9 (通常は49列目/AW列)
+    # CSV構造: [0-5]=固定6列, [6]=NWA, [7]=納品先BULK, [8..8+N-1]=BULK店舗,
+    #   gap1列, 在庫N列, gap2列, 出荷指示数N列 → 出荷指示数開始インデックス = 8+N+gap1+N+gap2
+    #   Excel列番号 = インデックス+1 = 2*N + gap1 + gap2 + 9
+    retail_col_start = 2 * N_struct + gap1_struct + gap2_struct + 9
+    
+    # 本来のCSV由来の列数をヘッダー行（1行目）から動的に特定する
+    csv_cols_count = 0
+    for c in range(1, ws_retail.max_column + 1):
+        if ws_retail.cell(row=1, column=c).value is not None:
+            csv_cols_count = c
+    if csv_cols_count == 0:
+        csv_cols_count = 69 # フォールバック
+    
+    # 追加データ列以降をクリアする。
+    # 行1 (CSV列番号行) 以降 retail_col_start 以降はすべてクリアして再設定する。
+    # CSV由来のヘッダー (出荷指示数・出荷予定日) や列番号が残留するのを防ぐ。
     max_r_retail = max(ws_retail.max_row, 1)
-    for r in range(5, max_r_retail + 1):
-        for c in range(49, 78):
+    clear_end_col = max(retail_col_start + 40, csv_cols_count + 1)
+    for r in range(1, max_r_retail + 1):  # 行1 (CSV列番号行) 以降すべてクリア
+        for c in range(retail_col_start, clear_end_col):
             ws_retail.cell(row=r, column=c).value = None
             
     # シートの複製
@@ -145,8 +168,8 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     csv_store_names = csv_struct['store_names']
     csv_store_codes = csv_struct['store_codes']
     
-    # RETAILシートの出荷予定日の列 (BQ列=69を最低とし、店舗数Nが多い場合は動的にシフトする)
-    retail_date_col = max(69, 49 + N)
+    # RETAILシートの出荷予定日の列 = 出荷指示数開始列 + N店舗分 (動的に計算)
+    retail_date_col = retail_col_start + N
     
     # 1. BULK不要列の削除 (gap1列分。BULK店舗終端の次から)
     ws_order.delete_cols(N + 5, gap1)
@@ -338,8 +361,21 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
             if code_col is None: code_col = df_m.columns[0]
             if name_col is None: name_col = df_m.columns[2] if len(df_m.columns) > 2 else df_m.columns[1]
 
+            def _normalize_product_code(v):
+                """指数表記のコード (例: 1.22002E+12) を整数文字列に正規化する。"""
+                if v is None or (isinstance(v, float) and pd.isna(v)):
+                    return ""
+                s = str(v).strip()
+                # 指数表記を検出して整数化
+                if 'E' in s.upper() or 'e' in s:
+                    try:
+                        return str(int(float(s)))
+                    except (ValueError, OverflowError):
+                        pass
+                return s
+
             for _, row in df_m.iterrows():
-                m_code = str(row[code_col]).strip() if not pd.isna(row[code_col]) else ""
+                m_code = _normalize_product_code(row[code_col] if not pd.isna(row[code_col]) else None)
                 m_name = str(row[name_col]).strip() if not pd.isna(row[name_col]) else ""
                 if m_code:
                     master_dict[m_code] = {
@@ -413,6 +449,11 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
                 total_qty = pd.to_numeric(row[num_cols], errors="coerce").fillna(0).sum()
                 if total_qty != 0:
                     all_sales_codes.add(code)
+                    
+    # HUTTE出荷指示に存在する指示コードも追加 (ZOZO/OIOIマスタは属性情報のため行追加の対象外)
+    for code, qty in hutte_dict.items():
+        if qty != 0: all_sales_codes.add(code)
+
 
     # 出荷予定振分の現在のA列コード
     order_codes = set()
@@ -440,6 +481,10 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     end_order_col = col_kabusoku_zan
 
     for code in leaked_codes:
+        # 商品コードがこのブランドに属さない場合はスキップ
+        # （ブランド名列を持たない売上CSVによる他ブランド商品の混入を防ぐ防衛的チェック）
+        if not is_target_brand(brand_config, code, None):
+            continue
         p_name = "不明な商品"
         if code in master_dict and master_dict[code]['name']:
             p_name = master_dict[code]['name']
@@ -477,9 +522,9 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
             ws_retail.cell(row=current_retail_row, column=col).value = 0
             
         for c_idx in range(N):
-            target_col_letter = openpyxl.utils.get_column_letter(49 + c_idx)
+            target_col_letter = openpyxl.utils.get_column_letter(retail_col_start + c_idx)
             source_col_letter = openpyxl.utils.get_column_letter(order_start_col + c_idx)
-            ws_retail.cell(row=current_retail_row, column=49 + c_idx).value = f"=order!{source_col_letter}{current_order_row}"
+            ws_retail.cell(row=current_retail_row, column=retail_col_start + c_idx).value = f"=order!{source_col_letter}{current_order_row}"
             
         ws_retail.cell(row=current_retail_row, column=retail_date_col).value = int(datetime.datetime.now().strftime("%Y%m%d"))
 
@@ -534,7 +579,7 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
 
         c_val = _safe_num(ws_order.cell(row=r, column=3).value)
         d_val = _safe_num(ws_order.cell(row=r, column=4).value)
-        kabu_sum = sum(_safe_num(ws_order.cell(row=r, column=col).value) for col in range(5, 18))
+        kabu_sum = sum(_safe_num(ws_order.cell(row=r, column=col).value) for col in range(5, kakubo_end_col + 1))
 
         if c_val == 0 and d_val == 0 and kabu_sum < total_sales_all:
             for store_name, col_idx in order_store_map.items():
@@ -567,7 +612,7 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
         let_retail_kakubo = openpyxl.utils.get_column_letter(col_retail_kakubo)
         let_kabusoku_zan = openpyxl.utils.get_column_letter(col_kabusoku_zan)
         
-        ws_order.cell(row=r, column=col_kabusoku_total).value = f"=SUMIF({kabusoku_start_let}{r},\"<0\",{kabusoku_start_let}{r}:{kabusoku_end_let}{r})"
+        ws_order.cell(row=r, column=col_kabusoku_total).value = f"=SUMIF({kabusoku_start_let}{r}:{kabusoku_end_let}{r},\"<0\",{kabusoku_start_let}{r}:{kabusoku_end_let}{r})"
         ws_order.cell(row=r, column=col_retail_kakubo).value = f"=IF({let_kabusoku_total}{r}<0,{let_d}{r}+{let_kabusoku_total}{r},{let_d}{r})"
         nwa_formula = f"IF({let_retail_kakubo}{r}<0,{let_c}{r}+{let_retail_kakubo}{r},{let_c}{r})"
         ws_order.cell(row=r, column=col_kabusoku_zan).value = f'=IF({nwa_formula}=0,"",{nwa_formula})'
@@ -608,14 +653,13 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
             
     for r in range(5, lastRowRetail + 1):
         for c_idx in range(N):
-            target_col_letter = openpyxl.utils.get_column_letter(49 + c_idx)
+            target_col_letter = openpyxl.utils.get_column_letter(retail_col_start + c_idx)
             source_col_letter = openpyxl.utils.get_column_letter(order_start_col + c_idx)
             source_row = r - 1
             ws_retail[f"{target_col_letter}{r}"] = f"=order!{source_col_letter}{source_row}"
         
         ws_retail.cell(row=r, column=retail_date_col).value = int(datetime.datetime.now().strftime("%Y%m%d"))
         
-    retail_col_start = 49
     num_slots = retail_date_col - retail_col_start
     
     for c_idx in range(num_slots):

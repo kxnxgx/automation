@@ -201,3 +201,42 @@ def parse_csv_store_structure(input_dir, encoding):
         'store_names': store_names,
         'store_codes': store_codes,
     }
+
+# ============================================================
+# 店舗名曖昧マッチング関数
+# ============================================================
+def is_store_match(col_name: str, target_store: str) -> bool:
+    """列名 col_name がターゲット店舗 target_store に合致するか判定する。"""
+    if pd.isna(col_name) or not col_name:
+        return False
+        
+    from config import STORE_MATCHING_RULES
+    col_str = str(col_name).strip()
+    col_upper = col_str.upper()
+    
+    rule = STORE_MATCHING_RULES.get(target_store)
+    if rule:
+        include_kws = rule.get("include", [])
+        exclude_kws = rule.get("exclude", [])
+        
+        # include 判定 (いずれかのキーワードが含まれているか)
+        has_include = False
+        for kw in include_kws:
+            if kw.upper() in col_upper:
+                has_include = True
+                break
+        if not has_include:
+            return False
+            
+        # exclude 判定 (いずれかのキーワードが含まれていたら除外)
+        for kw in exclude_kws:
+            if kw.upper() in col_upper:
+                return False
+                
+        return True
+    
+    # ルールがない場合は単純部分一致 (大文字小文字無視、半角スペース等除去)
+    target_clean = target_store.replace(" ", "").replace("　", "").upper()
+    col_clean = col_str.replace(" ", "").replace("　", "").upper()
+    return target_clean in col_clean
+

@@ -14,7 +14,7 @@ import glob
 
 # モジュール群からのインポート (互換性維持および再エクスポート)
 from config import BrandConfig, AutomationError, BRAND_FRV, BRAND_TEN, BRAND_HWG
-from utils import show_error, show_info, parse_csv_store_structure, is_target_brand, get_brand_name_safe
+from utils import show_error, show_info, parse_csv_store_structure, is_target_brand, get_brand_name_safe, is_store_match
 from data_loader import (
     load_store_sales, load_zozo_sales, load_oioi_sales, load_ec_sales,
     load_hutte, load_zozo_master, load_tokka
@@ -251,6 +251,8 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
 
     # 3. Excel列インデックスの動的解決 (列ズレ脆弱性の廃止)
     csv_struct = parse_csv_store_structure(input_dir, "cp932")
+    N = csv_struct["N"]
+    kakubo_end_col = N + 4
     all_names = csv_struct["store_names"]
     exclude_channels = {"ZOZO", "OIOI", "丸井web", "EC", "YSEC"}
     stores_list = [name for name in all_names if name not in exclude_channels]
@@ -283,30 +285,9 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
             col_map["EC"] = col
         else:
             for s in stores_list:
-                if s == "TOKYO":
-                    if "TOKYO" in val_str and "NODE" not in val_str:
-                        col_map["TOKYO"] = col
-                elif s == "ヒュッテ":
-                    if "ヒュッテ" in val_str or "HUTTE" in val_str.upper():
-                        col_map["ヒュッテ"] = col
-                elif s == "大丸心斎橋":
-                    if "大丸" in val_str or "心斎橋" in val_str:
-                        col_map["大丸心斎橋"] = col
-                elif s == "京王新宿":
-                    if "京王" in val_str or "新宿" in val_str:
-                        col_map["京王新宿"] = col
-                elif s == "玉川高島屋":
-                    if "玉川" in val_str or "高島屋" in val_str:
-                        col_map["玉川高島屋"] = col
-                elif s == "ルクア大阪":
-                    if "大阪" in val_str or "ルクア" in val_str:
-                        col_map["ルクア大阪"] = col
-                elif s == "NARITA":
-                    if "NARITA" in val_str or "成田" in val_str:
-                        col_map["NARITA"] = col
-                else:
-                    if s in val_str:
-                        col_map[s] = col
+                if is_store_match(val_str, s):
+                    col_map[s] = col
+                    break
 
     missing_channels = [c for c in channels if c not in col_map]
     if missing_channels:
@@ -330,12 +311,7 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
 
         # 店舗
         for s in stores_list:
-            if s == "TOKYO":
-                cols_match = [c for c in store_pivot.columns if "TOKYO" in c and "NODE" not in c]
-            elif s == "ヒュッテ":
-                cols_match = [c for c in store_pivot.columns if "ヒュッテ" in c or "HUTTE" in c.upper()]
-            else:
-                cols_match = [c for c in store_pivot.columns if s in c]
+            cols_match = [c for c in store_pivot.columns if is_store_match(c, s)]
 
             qty = 0
             if cols_match and code in store_pivot.index:
@@ -348,7 +324,7 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
         # 在庫情報
         c_val = ws.cell(row=r, column=3).value or 0
         d_val = ws.cell(row=r, column=4).value or 0
-        kabu_sum = sum(ws.cell(row=r, column=col).value or 0 for col in range(5, 18))
+        kabu_sum = sum(ws.cell(row=r, column=col).value or 0 for col in range(5, kakubo_end_col + 1))
 
         # 不足による売上ゼロ化（ZOZO/OIOI/EC/YSEC含む全チャネルをゼロにする）
         if c_val == 0 and d_val == 0 and kabu_sum < total_sales_all:

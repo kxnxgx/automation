@@ -28,7 +28,7 @@ BRAND_FRV = BrandConfig(
     name="FRV",
     allowed_names=["FRV", "FJALLRAVEN", "FJÄLLRÄVEN"],
     prefixes=[],  # すべて（除外プレフィックス以外）
-    excluded_prefixes=["TNT", "TNP", "TNF", "H", "W"]
+    excluded_prefixes=["TNT", "TNP", "TNF", "TNA", "H", "W"]
 )
 
 BRAND_TEN = BrandConfig(
@@ -44,3 +44,17 @@ BRAND_HWG = BrandConfig(
     prefixes=["H"],
     excluded_prefixes=[]
 )
+
+# ============================================================
+# 店舗名照合用ルール (エイリアス・除外条件)
+# ============================================================
+STORE_MATCHING_RULES = {
+    "ヒュッテ": {"include": ["ヒュッテ", "HUTTE"]},
+    "TOKYO": {"include": ["TOKYO"], "exclude": ["NODE"]},
+    "大丸心斎橋": {"include": ["大丸", "心斎橋"]},
+    "京王新宿": {"include": ["京王", "新宿"]},
+    "玉川高島屋": {"include": ["玉川", "高島屋"]},
+    "ルクア大阪": {"include": ["大阪", "ルクア"]},
+    "NARITA": {"include": ["NARITA", "成田"]},
+}
+
