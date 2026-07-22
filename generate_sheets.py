@@ -43,6 +43,10 @@ def step1_create_retail_wb(input_dir, encoding, brand_config: BrandConfig):
     # ================================================
     
     wb_retail = openpyxl.Workbook()
+    # 【修正④】デフォルトフォントを9ptに設定（完全版に合わせる）
+    # ワークブック作成直後にfont index 0を変更することで、
+    # 明示的なフォント指定がない全セルが9ptになる（全セル走査不要）
+    wb_retail._fonts[0] = openpyxl.styles.Font(name='Calibri', size=9)
     ws = wb_retail.active
     ws.title = "RETAIL"
     
@@ -107,9 +111,20 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     # CSV由来のヘッダー (出荷指示数・出荷予定日) や列番号が残留するのを防ぐ。
     max_r_retail = max(ws_retail.max_row, 1)
     clear_end_col = max(retail_col_start + 40, csv_cols_count + 1)
+    
+    # 【修正③】クリア前に1行目（CSV列番号インデックス）の値を保存しておく
+    # retail_col_start 以降の列インデックス値は完全版に合わせて保持・復元する
+    saved_row1 = {}
+    for c in range(retail_col_start, clear_end_col):
+        saved_row1[c] = ws_retail.cell(row=1, column=c).value
+    
     for r in range(1, max_r_retail + 1):  # 行1 (CSV列番号行) 以降すべてクリア
         for c in range(retail_col_start, clear_end_col):
             ws_retail.cell(row=r, column=c).value = None
+    
+    # 【修正③】クリア後にrow1のインデックス値を復元する（完全版との一致）
+    for c, val in saved_row1.items():
+        ws_retail.cell(row=1, column=c).value = val
             
     # シートの複製
     ws_order = wb_retail.copy_worksheet(ws_retail)
@@ -621,9 +636,11 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
         ws_order.cell(row=1, column=c).value = None
         
     max_order_col = max(order_store_map.values()) if order_store_map else order_end_col
+    # 【修正①】SUBTOTAL範囲を3500固定（完全版に合わせ、フィルター適用後も全行を正しく合計できるよう）
+    SUBTOTAL_MAX_ROW = 3500
     for c in range(3, max_order_col + 1):
         col_letter = openpyxl.utils.get_column_letter(c)
-        ws_order.cell(row=1, column=c).value = f"=SUBTOTAL(9,{col_letter}4:{col_letter}{lastRow})"
+        ws_order.cell(row=1, column=c).value = f"=SUBTOTAL(9,{col_letter}4:{col_letter}{SUBTOTAL_MAX_ROW})"
 
     kabusoku_cols_indices = list(kabusoku_store_map.values()) + [col_kabusoku_total, col_retail_kakubo, col_kabusoku_zan]
     kabusoku_min_col = min(kabusoku_cols_indices) if kabusoku_cols_indices else 44
@@ -640,10 +657,12 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     ws_order[f"{zan_letter}3"].alignment = Alignment(textRotation=255, horizontal='center', vertical='center')
     ws_order[f"{zan_letter}3"].fill = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid")
 
+    # 【修正②】条件付き書式を完全版に合わせる
+    # 適用範囲: A1:A1048576（全行）、数式: BG1<0（行固定参照なし）
     ws_order.conditional_formatting._cf_rules.clear()
     red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-    rule = FormulaRule(formula=[f"${zan_letter}4<0"], stopIfTrue=False, fill=red_fill)
-    ws_order.conditional_formatting.add(f"A4:A{lastRow}", rule)
+    rule = FormulaRule(formula=[f"{zan_letter}1<0"], stopIfTrue=False, fill=red_fill)
+    ws_order.conditional_formatting.add("A1:A1048576", rule)
 
     lastRowRetail = 5
     for r in range(ws_retail.max_row, 4, -1):
