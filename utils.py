@@ -125,9 +125,11 @@ def parse_csv_store_structure(input_dir, encoding):
     """
     出荷予定振分.csv の店舗構造を動的に解析する。
     返り値: dict で以下のキーを含む:
+    Returns:
       - N          : ORDER セクションの店舗数 (= BULK = 在庫 と同数のはず)
       - gap1       : BULK店舗と在庫店舗の間の空白列数
       - gap2       : 在庫店舗とORDER店舗の間の空白列数
+      - gap3       : ORDER店舗と出荷予定日の間の空白列数
       - store_names: ORDERセクションの店舗名リスト (len = N)
       - store_codes: ORDERセクションの店舗コードリスト (len = N)
     """
@@ -190,6 +192,14 @@ def parse_csv_store_structure(input_dir, encoding):
     else:
         order_N = len(row_names) - order_start
 
+    gap3 = 0
+    for i in range(order_start + order_N, len(row_names)):
+        s = str(row_names[i]).strip()
+        if s == 'nan' or s == '':
+            gap3 += 1
+        else:
+            break
+
     store_names = [str(row_names[order_start + i]).strip() for i in range(order_N)]
     store_codes = [str(row_codes[order_start + i]).strip() for i in range(order_N)]
     final_N = order_N if order_N > 0 else N
@@ -198,6 +208,7 @@ def parse_csv_store_structure(input_dir, encoding):
         'N'          : final_N,
         'gap1'       : gap1,
         'gap2'       : gap2,
+        'gap3'       : gap3,
         'store_names': store_names,
         'store_codes': store_codes,
     }

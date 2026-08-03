@@ -157,10 +157,10 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
         idx_brand -= cols_to_delete_before
         idx_code = 1
         
-    # A列の書式適用
+    # A列の書式適用（数値書式で左寄せ: 数字のみコードの文字化けを防ぐ）
     for row in range(1, ws_order.max_row + 1):
         cell = ws_order.cell(row=row, column=1)
-        cell.number_format = 'General'
+        cell.number_format = '0'
         cell.alignment = Alignment(horizontal='left', vertical='center')
 
     # B列幅設定
@@ -183,8 +183,8 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     csv_store_names = csv_struct['store_names']
     csv_store_codes = csv_struct['store_codes']
     
-    # RETAILシートの出荷予定日の列 = 出荷指示数開始列 + N店舗分 (動的に計算)
-    retail_date_col = retail_col_start + N
+    # RETAILシートの出荷予定日の列 = 出荷指示数開始列 + N店舗分 + gap3（動的に計算）
+    retail_date_col = retail_col_start + N + csv_struct.get('gap3', 0)
     
     # 1. BULK不要列の削除 (gap1列分。BULK店舗終端の次から)
     ws_order.delete_cols(N + 5, gap1)
@@ -694,6 +694,15 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
                 ws_retail.cell(row=3, column=retail_col_start + c_idx).value = int(store_code)
             except (ValueError, TypeError):
                 ws_retail.cell(row=3, column=retail_col_start + c_idx).value = store_code
+
+    # RETAIL D列（商品コード）に数値書式を適用（数字のみコードの文字化けを防ぐ）
+    for r in range(5, lastRowRetail + 1):
+        ws_retail.cell(row=r, column=4).number_format = '0'
+
+    # RETAILシートのgap3列（出荷指示数終端～出荷予定日の直前）を非表示に設定
+    for c in range(retail_col_start + N, retail_date_col):
+        col_letter = openpyxl.utils.get_column_letter(c)
+        ws_retail.column_dimensions[col_letter].hidden = True
 
     extra_col_start = col_kabusoku_zan + 1
     col_kibou = extra_col_start
