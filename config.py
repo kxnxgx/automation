@@ -28,13 +28,13 @@ BRAND_FRV = BrandConfig(
     name="FRV",
     allowed_names=["FRV", "FJALLRAVEN", "FJÄLLRÄVEN"],
     prefixes=[],  # すべて（除外プレフィックス以外）
-    excluded_prefixes=["TNT", "TNP", "TNF", "TNA", "H", "W"]
+    excluded_prefixes=["TN", "TEN", "H", "W"]  # TENブランド(TN*, TEN*)、HWG(H*)、WES(W*)を除外
 )
 
 BRAND_TEN = BrandConfig(
     name="TEN",
     allowed_names=["TEN", "TENNEN"],
-    prefixes=["TNT", "TNP", "TNF"],
+    prefixes=["TN", "TEN"],
     excluded_prefixes=[]
 )
 

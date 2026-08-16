@@ -106,25 +106,13 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     if csv_cols_count == 0:
         csv_cols_count = 69 # フォールバック
     
-    # 追加データ列以降をクリアする。
-    # 行1 (CSV列番号行) 以降 retail_col_start 以降はすべてクリアして再設定する。
-    # CSV由来のヘッダー (出荷指示数・出荷予定日) や列番号が残留するのを防ぐ。
+    # ヘッダー（行1〜4）はCSV由来の構成をそのまま保持し、
+    # データ行（行5以降）の出荷指示エリア以降のみをクリアして数式・日付設定の準備をする
     max_r_retail = max(ws_retail.max_row, 1)
-    clear_end_col = max(retail_col_start + 40, csv_cols_count + 1)
-    
-    # 【修正③】クリア前に1行目（CSV列番号インデックス）の値を保存しておく
-    # retail_col_start 以降の列インデックス値は完全版に合わせて保持・復元する
-    saved_row1 = {}
-    for c in range(retail_col_start, clear_end_col):
-        saved_row1[c] = ws_retail.cell(row=1, column=c).value
-    
-    for r in range(1, max_r_retail + 1):  # 行1 (CSV列番号行) 以降すべてクリア
-        for c in range(retail_col_start, clear_end_col):
+    max_c_retail = max(ws_retail.max_column, 1)
+    for r in range(5, max_r_retail + 1):
+        for c in range(retail_col_start, max_c_retail + 1):
             ws_retail.cell(row=r, column=c).value = None
-    
-    # 【修正③】クリア後にrow1のインデックス値を復元する（完全版との一致）
-    for c, val in saved_row1.items():
-        ws_retail.cell(row=1, column=c).value = val
             
     # シートの複製
     ws_order = wb_retail.copy_worksheet(ws_retail)
@@ -183,8 +171,16 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     csv_store_names = csv_struct['store_names']
     csv_store_codes = csv_struct['store_codes']
     
-    # RETAILシートの出荷予定日の列 = 出荷指示数開始列 + N店舗分 + gap3（動的に計算）
-    retail_date_col = retail_col_start + N + csv_struct.get('gap3', 0)
+    # RETAILシートの出荷予定日の列を動的に特定（ヘッダー行優先、フォールバック計算あり）
+    retail_date_col = csv_struct.get('shipping_date_col')
+    if not retail_date_col:
+        for c in range(retail_col_start, ws_retail.max_column + 1):
+            val = str(ws_retail.cell(row=2, column=c).value or "").strip()
+            if "出荷予定" in val:
+                retail_date_col = c
+                break
+    if not retail_date_col:
+        retail_date_col = retail_col_start + N + csv_struct.get('gap3', 0)
     
     # 1. BULK不要列の削除 (gap1列分。BULK店舗終端の次から)
     ws_order.delete_cols(N + 5, gap1)
@@ -477,8 +473,12 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
         if val:
             order_codes.add(str(val).strip())
 
-    leaked_codes = sorted(list(all_sales_codes - order_codes))
-    print(f"  出荷予定にない売上発生商品を追加中... (追加数: {len(leaked_codes)})")
+    # --------------------------------------------------------
+    # 出荷予定振分にない商品は、確保数(BULK)・在庫が0のため出荷指示も0となり
+    # 表に追加しても売れ点・在庫のない無意味な行となるため、追加しない。
+    # --------------------------------------------------------
+    leaked_codes = []
+    print("  出荷予定にない売上発生商品の追加: スキップ（確保・在庫なしのため）")
 
     # --------------------------------------------------------
     # orderシートおよびRETAILシートの末尾への行追加
@@ -499,6 +499,28 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
         # 商品コードがこのブランドに属さない場合はスキップ
         # （ブランド名列を持たない売上CSVによる他ブランド商品の混入を防ぐ防衛的チェック）
         if not is_target_brand(brand_config, code, None):
+            continue
+
+        # -------------------------------------------------------
+        # 対策①: BULK（売れ点）・在庫がすべて0の場合はスキップ
+        #   → 出荷予定振分にない商品でも、実際に売れておらず在庫も
+        #     ない場合は出力表に追加しても意味がないため除外する。
+        # -------------------------------------------------------
+        pivot_total = 0
+        if pivot_df is not None and not pivot_df.empty and "3rd Item No." in pivot_df.columns:
+            row_df = pivot_df[pivot_df["3rd Item No."] == code]
+            if not row_df.empty:
+                num_cols = [c for c in pivot_df.columns if c != "3rd Item No."]
+                pivot_total = int(pd.to_numeric(row_df[num_cols].iloc[0], errors="coerce").fillna(0).sum())
+
+        sales_total = (
+            int(zozo_dict.get(code, 0))
+            + int(oioi_dict.get(code, 0))
+            + int(ec_dict.get(code, 0))
+            + int(hutte_dict.get(code, 0))
+            + pivot_total
+        )
+        if sales_total <= 0:
             continue
         p_name = "不明な商品"
         if code in master_dict and master_dict[code]['name']:
@@ -679,27 +701,12 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
         
         ws_retail.cell(row=r, column=retail_date_col).value = int(datetime.datetime.now().strftime("%Y%m%d"))
         
-    num_slots = retail_date_col - retail_col_start
-    
-    for c_idx in range(num_slots):
-        ws_retail.cell(row=2, column=retail_col_start + c_idx).value = "出荷指示数"
-    ws_retail.cell(row=2, column=retail_date_col).value = "出荷予定日"
-    
-    for c_idx in range(N):
-        if c_idx < len(csv_store_names):
-            store_name = csv_store_names[c_idx]
-            store_code = csv_store_codes[c_idx]
-            ws_retail.cell(row=4, column=retail_col_start + c_idx).value = store_name
-            try:
-                ws_retail.cell(row=3, column=retail_col_start + c_idx).value = int(store_code)
-            except (ValueError, TypeError):
-                ws_retail.cell(row=3, column=retail_col_start + c_idx).value = store_code
-
-    # RETAIL D列（商品コード）に数値書式を適用（数字のみコードの文字化けを防ぐ）
-    for r in range(5, lastRowRetail + 1):
+    # RETAIL D列（商品コード）に数値書式を適用（列プロパティおよび各セル）
+    ws_retail.column_dimensions['D'].number_format = '0'
+    for r in range(1, lastRowRetail + 1):
         ws_retail.cell(row=r, column=4).number_format = '0'
 
-    # RETAILシートのgap3列（出荷指示数終端～出荷予定日の直前）を非表示に設定
+    # RETAILシートの余白列（出荷指示数終端～出荷予定日の直前）を非表示に設定
     for c in range(retail_col_start + N, retail_date_col):
         col_letter = openpyxl.utils.get_column_letter(c)
         ws_retail.column_dimensions[col_letter].hidden = True

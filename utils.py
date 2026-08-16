@@ -192,8 +192,15 @@ def parse_csv_store_structure(input_dir, encoding):
     else:
         order_N = len(row_names) - order_start
 
+    row_headers = list(df_raw.iloc[0].tolist())
+
     gap3 = 0
+    shipping_date_col_idx = None
     for i in range(order_start + order_N, len(row_names)):
+        header_val = str(row_headers[i]).strip() if i < len(row_headers) else ""
+        if "出荷予定" in header_val:
+            shipping_date_col_idx = i + 1 # 1-indexed Excel column number
+            break
         s = str(row_names[i]).strip()
         if s == 'nan' or s == '':
             gap3 += 1
@@ -205,12 +212,13 @@ def parse_csv_store_structure(input_dir, encoding):
     final_N = order_N if order_N > 0 else N
 
     return {
-        'N'          : final_N,
-        'gap1'       : gap1,
-        'gap2'       : gap2,
-        'gap3'       : gap3,
-        'store_names': store_names,
-        'store_codes': store_codes,
+        'N'                    : final_N,
+        'gap1'                 : gap1,
+        'gap2'                 : gap2,
+        'gap3'                 : gap3,
+        'shipping_date_col'    : shipping_date_col_idx,
+        'store_names'          : store_names,
+        'store_codes'          : store_codes,
     }
 
 # ============================================================
