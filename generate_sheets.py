@@ -50,9 +50,15 @@ def step1_create_retail_wb(input_dir, encoding, brand_config: BrandConfig):
     ws = wb_retail.active
     ws.title = "RETAIL"
     
-    # ヘッダー書き込み
+    # ヘッダー書き込み（数値型として書き込み）
     for c_idx, col_name in enumerate(df.columns, start=1):
-        ws.cell(row=1, column=c_idx).value = col_name
+        if isinstance(col_name, str) and col_name.isdigit():
+            ws.cell(row=1, column=c_idx).value = int(col_name)
+        else:
+            try:
+                ws.cell(row=1, column=c_idx).value = int(col_name)
+            except (ValueError, TypeError):
+                ws.cell(row=1, column=c_idx).value = col_name
         
     # データ書き込み
     for r_idx, row in enumerate(df.values.tolist(), start=2):
@@ -162,14 +168,14 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     ws_order.delete_rows(3, 1) # 3行目を削除 (店舗コード行を削除)
     
     # ============================================================
-    # 店舗構造の動的取得
+    # 店舗構造の動的取得（STATE-03対応: L96 で取得済みの csv_struct を再利用し、2重読み込みを防ぐ）
     # ============================================================
-    csv_struct = parse_csv_store_structure(input_dir, "cp932")
     N    = csv_struct['N']
     gap1 = csv_struct['gap1']
     gap2 = csv_struct['gap2']
     csv_store_names = csv_struct['store_names']
     csv_store_codes = csv_struct['store_codes']
+
     
     # RETAILシートの出荷予定日の列を動的に特定（ヘッダー行優先、フォールバック計算あり）
     retail_date_col = csv_struct.get('shipping_date_col')
@@ -571,8 +577,16 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     lastRow = current_order_row - 1
     lastRowRetail = current_retail_row - 1
 
-    start_zaiko_col = min(col_idx for (area, store), col_idx in col_map.items() if area == "在庫")
-    end_zaiko_col = max(col_idx for (area, store), col_idx in col_map.items() if area == "在庫")
+    # CRASH-01対応: 在庫列が1つも検出されない場合に min/max が ValueError でクラッシュするのを防ぐ
+    _zaiko_cols = [col_idx for (area, _store), col_idx in col_map.items() if area == "在庫"]
+    if not _zaiko_cols:
+        raise AutomationError(
+            "列構造の解析エラー",
+            "orderシートから「在庫」エリアの列を検出できませんでした。\n"
+            "出荷予定振分.csvのフォーマットが変更された可能性があります。"
+        )
+    start_zaiko_col = min(_zaiko_cols)
+    end_zaiko_col = max(_zaiko_cols)
     
     thin_side = Side(border_style="thin", color="000000")
     border_left_only = Border(left=thin_side)
@@ -640,6 +654,13 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
                 o_let = openpyxl.utils.get_column_letter(o_col)
                 ws_order.cell(row=r, column=k_col).value = f"={b_let}{r}-{o_let}{r}"
             
+        # CRASH-01対応: 過不足店舗列が空のときのガード
+        if not kabusoku_store_map:
+            raise AutomationError(
+                "列構造の解析エラー",
+                "orderシートから「過不足」エリアの店舗列を検出できませんでした。\n"
+                "出荷予定振分.csvのフォーマットが変更された可能性があります。"
+            )
         kabusoku_start_let = openpyxl.utils.get_column_letter(min(kabusoku_store_map.values()))
         kabusoku_end_let = openpyxl.utils.get_column_letter(max(kabusoku_store_map.values()))
         

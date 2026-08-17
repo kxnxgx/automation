@@ -203,11 +203,16 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
 
     # EC
     df_ec = pd.read_csv(ec_csv, encoding="cp932", dtype=str)
-    df_ec = df_ec[~df_ec["決済方法(ステータス)"].str.contains("キャンセル", na=False)]
-    df_ec = df_ec[~df_ec["注文者"].str.contains("店舗客注", na=False)]
+    # CRASH-02対応: 列名が変更された CSV でも KeyError で落ちないよう存在チェックを追加
+    if "決済方法(ステータス)" in df_ec.columns:
+        df_ec = df_ec[~df_ec["決済方法(ステータス)"].str.contains("キャンセル", na=False)]
+    if "注文者" in df_ec.columns:
+        df_ec = df_ec[~df_ec["注文者"].str.contains("店舗客注", na=False)]
     df_ec["個数"] = pd.to_numeric(df_ec["個数"], errors="coerce").fillna(0).clip(lower=0)
     key_col = "オプション独自コード" if "オプション独自コード" in df_ec.columns else "商品コード"
-    df_ec = df_ec[~df_ec[key_col].fillna("").str.contains("GIFT", na=False)]
+    # BUG-06対応: GIFTコードを data_loader と同様に除外（大文字統一）
+    df_ec = df_ec[~df_ec[key_col].fillna("").str.upper().str.contains("GIFT", na=False)]
+
     brand_col = "ブランド名" if "ブランド名" in df_ec.columns else None
     if not df_ec.empty:
         if brand_col:
@@ -298,6 +303,22 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
     # 4. 売上ゼロ化ロジックの適用と正解値（期待値）の算出
     resolved_sales = {c: {} for c in channels}
 
+    def _safe_num_v(v):
+        """セル値を安全に数値変換する（generate_sheets._safe_num と同一ロジック）。
+        ⚠ BUG-03対応: data_only=True で開いたブックでは数式セルが None になる場合がある。
+          また文字列型の数式（"=SUM(...)"）が残存する場合も 0 として扱う。
+          在庫チェック列（C・D・BULK列）は CSV 由来の数値なので通常 None にはならないが、
+          フォーマット変更等への防衛的対策として適用する。
+        """
+        if isinstance(v, (int, float)):
+            return v
+        if v is None:
+            return 0
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return 0
+
     for r in range(4, ws.max_row + 1):
         code = ws.cell(row=r, column=1).value
         if not code:
@@ -321,10 +342,10 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
         # 全チャネルの売上合計で在庫不足を判定（仕様修正：全チャネルをゼロ化）
         total_sales_all = sum(max(0, raw_vals[k]) for k in channels)
 
-        # 在庫情報
-        c_val = ws.cell(row=r, column=3).value or 0
-        d_val = ws.cell(row=r, column=4).value or 0
-        kabu_sum = sum(ws.cell(row=r, column=col).value or 0 for col in range(5, kakubo_end_col + 1))
+        # 在庫情報（generate_sheets._safe_num と同一の変換ロジックを適用）
+        c_val = _safe_num_v(ws.cell(row=r, column=3).value)
+        d_val = _safe_num_v(ws.cell(row=r, column=4).value)
+        kabu_sum = sum(_safe_num_v(ws.cell(row=r, column=col).value) for col in range(5, kakubo_end_col + 1))
 
         # 不足による売上ゼロ化（ZOZO/OIOI/EC/YSEC含む全チャネルをゼロにする）
         if c_val == 0 and d_val == 0 and kabu_sum < total_sales_all:
@@ -333,6 +354,7 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
         else:
             for k in channels:
                 resolved_sales[k][code] = max(0, raw_vals[k])
+
 
     # 正解合計値
     zozo_true = sum(resolved_sales["ZOZO"].values())

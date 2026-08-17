@@ -28,11 +28,16 @@ def is_target_brand(config: BrandConfig, code, brand_name=None) -> bool:
         b = str(brand_name).upper().strip()
         return b in config.allowed_names
 
-    # 2. ブランド名がない場合のみコードで判定
+    # 2. ブランド名がない場合のみコードで判定（フォールバック）
+    # ⚠ BUG-01対応: このパスはブランド列を持たない CSV のみで通過する。
+    #   プレフィックスの 1 文字一致（例: "H", "W"）は広範なため、
+    #   意図しない商品コードを巻き込む可能性がある。
+    #   ブランド列が欠落している CSV がある場合は管理者に連絡すること。
     if not code or pd.isna(code):
         return False
 
     c = str(code).upper().strip()
+
     # 除外プレフィックスにマッチすれば False
     if config.excluded_prefixes and c.startswith(config.excluded_prefixes):
         return False
@@ -46,6 +51,7 @@ def is_target_brand(config: BrandConfig, code, brand_name=None) -> bool:
         return True
 
     return False
+
 
 def get_brand_name_safe(row):
     """pandasの行からBrandまたはブランド名を安全に取得する（NaN回避）"""

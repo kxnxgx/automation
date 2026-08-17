@@ -94,16 +94,29 @@ def load_ec_sales(input_dir, encoding, brand_config: BrandConfig):
     if df.empty:
         return {}
 
-    df = df[~df["決済方法(ステータス)"].str.contains("キャンセル", na=False)]
-    df = df[~df["注文者"].str.contains("店舗客注", na=False)]
+    # ⑥ CRASH-02対応: 列名が変更された CSV でも KeyError で落ちないよう存在チェックを追加
+    if "決済方法(ステータス)" in df.columns:
+        df = df[~df["決済方法(ステータス)"].str.contains("キャンセル", na=False)]
+    else:
+        print("  [警告] 「決済方法(ステータス)」列が見つかりません。キャンセル除外をスキップします。")
+
+    if "注文者" in df.columns:
+        df = df[~df["注文者"].str.contains("店舗客注", na=False)]
+    else:
+        print("  [警告] 「注文者」列が見つかりません。店舗客注除外をスキップします。")
+
     df = df.reset_index(drop=True)
 
     # マイナス値を0に丸める
     df["個数"] = pd.to_numeric(df["個数"], errors="coerce").fillna(0)
     df["個数"] = df["個数"].clip(lower=0)
-    
+
     key_col = "オプション独自コード" if "オプション独自コード" in df.columns else "商品コード"
-    
+
+    # ⑤ BUG-06対応: GIFTコードをここで除外（以前は generate_sheets 側でのみ除外していたため
+    #   実際のセル書き込み時に GIFT 商品の売上が混入していた）
+    df = df[~df[key_col].fillna("").str.upper().str.contains("GIFT", na=False)]
+
     # ターゲットブランドのみ抽出
     brand_col = "ブランド名" if "ブランド名" in df.columns else None
     if brand_col:
@@ -114,6 +127,7 @@ def load_ec_sales(input_dir, encoding, brand_config: BrandConfig):
 
     agg_df = df.groupby(key_col)["個数"].sum().reset_index()
     return dict(zip(agg_df[key_col], agg_df["個数"]))
+
 
 # ============================================================
 # 新規データ抽出用ロード関数 (堅牢化＆列インデックスハードコーディング廃止)
