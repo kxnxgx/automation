@@ -28,11 +28,11 @@ MANUAL_FILE = BASE_DIR / "20260721 RETAIL FRV.xlsx"       # 完全版（正解�
 
 # output フォルダ内の最新の RETAIL FRV ファイルを自動検出
 output_dir = BASE_DIR / "output"
-auto_files = list(output_dir.glob("*RETAIL FRV.xlsx"))
+auto_files = list(output_dir.glob("*RETAIL FRV.xlsm")) + list(output_dir.glob("*RETAIL FRV.xlsx"))
 if auto_files:
     AUTO_FILE = sorted(auto_files, key=lambda x: x.stat().st_mtime, reverse=True)[0]
 else:
-    AUTO_FILE = output_dir / "20260721 RETAIL FRV.xlsx"
+    AUTO_FILE = output_dir / "20260721 RETAIL FRV.xlsm"
 
 
 # ──────────────────────────────────────────────

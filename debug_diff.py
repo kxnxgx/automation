@@ -18,15 +18,15 @@ def main():
 
     if brand_name == "TEN":
         brand_config = BRAND_TEN
-        output_file = f"{today_str} RETAIL TEN.xlsx"
+        output_file = f"{today_str} RETAIL TEN.xlsm"
         input_folder = "input"
     elif brand_name == "HWG" or brand_name == "HANWAG":
         brand_config = BRAND_HWG
-        output_file = f"{today_str} RETAIL HWG.xlsx"
+        output_file = f"{today_str} RETAIL HWG.xlsm"
         input_folder = "input"
     else:
         brand_config = BRAND_FRV
-        output_file = f"{today_str} RETAIL FRV.xlsx"
+        output_file = f"{today_str} RETAIL FRV.xlsm"
         input_folder = "input"
 
     result_path = os.path.join(BASE_DIR, "output", output_file)

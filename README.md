@@ -96,9 +96,9 @@ c:\Users\kesuzuki\Desktop\出荷表自動化\
 ### ② 完成した集計表の確認
 プログラムの `output` フォルダ内に、今日の日付が入った **ブランド別のExcelファイル** が3つ作成されます。
 
-* 例：**`output\20260706 RETAIL FRV.xlsx`**
-* 例：**`output\20260706 RETAIL TEN.xlsx`**
-* 例：**`output\20260706 RETAIL HWG.xlsx`**
+* 例：**`output\20260706 RETAIL FRV.xlsm`**
+* 例：**`output\20260706 RETAIL TEN.xlsm`**
+* 例：**`output\20260706 RETAIL HWG.xlsm`**
 
 これを開いて、集計データが正しく反映されていることを確認してください。
 
