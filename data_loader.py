@@ -24,11 +24,13 @@ def load_store_sales(input_dir, encoding, brand_config: BrandConfig):
     mask = df.apply(lambda row: is_target_brand(brand_config, row["3rd Item No."], row.get("表記部門名1")), axis=1)
     df_filtered = df[mask].copy()
 
-    # 数量の数値型キャストおよびマイナス値（返品・キャンセル）の0丸め
+    # 数量の数値型キャスト
     df_filtered["数量"] = pd.to_numeric(df_filtered["数量"], errors="coerce").fillna(0)
-    df_filtered["数量"] = df_filtered["数量"].clip(lower=0)
-    
-    pivot_df = df_filtered.pivot_table(index="3rd Item No.", columns="店舗名称", values="数量", aggfunc="sum").reset_index()
+
+    # マイナス値（返品・取消）は商品×店舗で合計した後に0丸めする。
+    # 行単位で先に0丸めすると「売上+1・取消-1」が相殺されず過大計上になるため。
+    pivot_df = df_filtered.pivot_table(index="3rd Item No.", columns="店舗名称", values="数量", aggfunc="sum")
+    pivot_df = pivot_df.clip(lower=0).reset_index()
     return pivot_df
 
 def get_store_sales_value(pivot_df, code_short, store_name):
@@ -58,11 +60,10 @@ def load_zozo_sales(input_dir, encoding, brand_config: BrandConfig):
     mask = df.apply(lambda row: is_target_brand(brand_config, row["商品コード"], get_brand_name_safe(row)), axis=1)
     df_filtered = df[mask].copy()
 
-    # マイナス値を0に丸める
+    # マイナス値（返品・取消）は商品ごとに合計した後に0丸めする
     df_filtered["販売数量"] = pd.to_numeric(df_filtered["販売数量"], errors="coerce").fillna(0)
-    df_filtered["販売数量"] = df_filtered["販売数量"].clip(lower=0)
-    
-    agg_df = df_filtered.groupby("商品コード")["販売数量"].sum().reset_index()
+
+    agg_df = df_filtered.groupby("商品コード")["販売数量"].sum().clip(lower=0).reset_index()
     return dict(zip(agg_df["商品コード"], agg_df["販売数量"]))
 
 def load_oioi_sales(input_dir, encoding, brand_config: BrandConfig):
@@ -79,11 +80,10 @@ def load_oioi_sales(input_dir, encoding, brand_config: BrandConfig):
         mask = df.apply(lambda row: is_target_brand(brand_config, None, get_brand_name_safe(row)), axis=1)
     df_filtered = df[mask].copy()
 
-    # マイナス値を0に丸める
+    # マイナス値（返品・取消）は商品ごとに合計した後に0丸めする
     if "販売数量" in df_filtered.columns and "商品コード" in df_filtered.columns:
         df_filtered["販売数量"] = pd.to_numeric(df_filtered["販売数量"], errors="coerce").fillna(0)
-        df_filtered["販売数量"] = df_filtered["販売数量"].clip(lower=0)
-        agg_df = df_filtered.groupby("商品コード")["販売数量"].sum().reset_index()
+        agg_df = df_filtered.groupby("商品コード")["販売数量"].sum().clip(lower=0).reset_index()
         return dict(zip(agg_df["商品コード"], agg_df["販売数量"]))
     return {}
 
@@ -107,9 +107,8 @@ def load_ec_sales(input_dir, encoding, brand_config: BrandConfig):
 
     df = df.reset_index(drop=True)
 
-    # マイナス値を0に丸める
+    # 数値型キャスト（マイナス値の0丸めは商品ごとの合計後に行う）
     df["個数"] = pd.to_numeric(df["個数"], errors="coerce").fillna(0)
-    df["個数"] = df["個数"].clip(lower=0)
 
     key_col = "オプション独自コード" if "オプション独自コード" in df.columns else "商品コード"
 
@@ -125,7 +124,7 @@ def load_ec_sales(input_dir, encoding, brand_config: BrandConfig):
         mask = df[key_col].apply(lambda c: is_target_brand(brand_config, c, None))
     df = df[mask]
 
-    agg_df = df.groupby(key_col)["個数"].sum().reset_index()
+    agg_df = df.groupby(key_col)["個数"].sum().clip(lower=0).reset_index()
     return dict(zip(agg_df[key_col], agg_df["個数"]))
 
 

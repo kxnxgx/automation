@@ -175,8 +175,9 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
     if not df_zozo.empty:
         mask = df_zozo.apply(lambda row: is_target_brand(brand_config, row["商品コード"], get_brand_name_safe(row)), axis=1)
         df_zozo = df_zozo[mask].copy()
-    df_zozo["販売数量"] = pd.to_numeric(df_zozo["販売数量"], errors="coerce").fillna(0).clip(lower=0)
-    zozo_sales = df_zozo.groupby("商品コード")["販売数量"].sum().to_dict()
+    # マイナス値（返品・取消）は商品ごとに合計した後に0丸めする（data_loader と同一仕様）
+    df_zozo["販売数量"] = pd.to_numeric(df_zozo["販売数量"], errors="coerce").fillna(0)
+    zozo_sales = df_zozo.groupby("商品コード")["販売数量"].sum().clip(lower=0).to_dict()
 
     # OIOI
     oioi_sales = {}
@@ -189,17 +190,17 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
             else:
                 mask = df_oioi.apply(lambda row: is_target_brand(brand_config, None, _get_brand_o(row)), axis=1)
             df_oioi = df_oioi[mask].copy()
-        df_oioi["販売数量"] = pd.to_numeric(df_oioi["販売数量"], errors="coerce").fillna(0).clip(lower=0)
+        df_oioi["販売数量"] = pd.to_numeric(df_oioi["販売数量"], errors="coerce").fillna(0)
         if "商品コード" in df_oioi.columns:
-            oioi_sales = df_oioi.groupby("商品コード")["販売数量"].sum().to_dict()
+            oioi_sales = df_oioi.groupby("商品コード")["販売数量"].sum().clip(lower=0).to_dict()
 
     # 店舗
     df_store = pd.read_csv(store_csv, encoding="cp932", dtype=str)
     if not df_store.empty:
         mask = df_store.apply(lambda row: is_target_brand(brand_config, row["3rd Item No."], row.get("表記部門名1")), axis=1)
         df_store = df_store[mask].copy()
-    df_store["数量"] = pd.to_numeric(df_store["数量"], errors="coerce").fillna(0).clip(lower=0)
-    store_pivot = df_store.pivot_table(index="3rd Item No.", columns="店舗名称", values="数量", aggfunc="sum").fillna(0)
+    df_store["数量"] = pd.to_numeric(df_store["数量"], errors="coerce").fillna(0)
+    store_pivot = df_store.pivot_table(index="3rd Item No.", columns="店舗名称", values="数量", aggfunc="sum").fillna(0).clip(lower=0)
 
     # EC
     df_ec = pd.read_csv(ec_csv, encoding="cp932", dtype=str)
@@ -208,7 +209,7 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
         df_ec = df_ec[~df_ec["決済方法(ステータス)"].str.contains("キャンセル", na=False)]
     if "注文者" in df_ec.columns:
         df_ec = df_ec[~df_ec["注文者"].str.contains("店舗客注", na=False)]
-    df_ec["個数"] = pd.to_numeric(df_ec["個数"], errors="coerce").fillna(0).clip(lower=0)
+    df_ec["個数"] = pd.to_numeric(df_ec["個数"], errors="coerce").fillna(0)
     key_col = "オプション独自コード" if "オプション独自コード" in df_ec.columns else "商品コード"
     # BUG-06対応: GIFTコードを data_loader と同様に除外（大文字統一）
     df_ec = df_ec[~df_ec[key_col].fillna("").str.upper().str.contains("GIFT", na=False)]
@@ -220,7 +221,7 @@ def verify_pipeline(brand_config: BrandConfig, input_dir: str, result_path: str)
         else:
             mask = df_ec[key_col].apply(lambda c: is_target_brand(brand_config, c, None))
         df_ec = df_ec[mask]
-    ec_sales = df_ec.groupby(key_col)["個数"].sum().to_dict()
+    ec_sales = df_ec.groupby(key_col)["個数"].sum().clip(lower=0).to_dict()
 
     # Excelワークブックの読み込み
     wb = openpyxl.load_workbook(result_path, data_only=True)
