@@ -13,7 +13,7 @@ from openpyxl.formatting.rule import FormulaRule
 from config import AutomationError, BrandConfig
 from utils import (
     find_single_csv, is_target_brand, parse_csv_store_structure,
-    get_brand_name_safe
+    get_brand_name_safe, read_shipping_plan_csv
 )
 from data_loader import get_store_sales_value
 
@@ -22,9 +22,9 @@ from data_loader import get_store_sales_value
 # ============================================================
 def step1_create_retail_wb(input_dir, encoding, brand_config: BrandConfig):
     print("[手順1] 出荷予定振分.csv から RETAILシートの構築")
-    src = find_single_csv(input_dir, ["出荷予定振分"])
-    df = pd.read_csv(src, encoding=encoding, header=0, dtype=str)
-    
+    # 除外店舗（config.EXCLUDED_OUTPUT_STORES）の列は空欄化済み
+    df = read_shipping_plan_csv(input_dir, encoding)
+
     # ======== フォーマット変動検証は廃止済み ========
     # 店舗数は parse_csv_store_structure() で動的に取得するため、
     # 固定列数を前提とする検証ブロックは不要。

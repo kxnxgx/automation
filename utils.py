@@ -125,6 +125,42 @@ def find_single_csv(input_dir, pattern_keywords, exclude_keywords=None):
     return matched[0]
 
 # ============================================================
+# 出荷予定振分.csv の読み込み（除外店舗の列を空欄化）
+# ============================================================
+SHIPPING_PLAN_STORE_START = 8  # 店舗列の開始インデックス（0始まり。0-5=固定列, 6=NWA, 7=納品先BULK）
+
+def read_shipping_plan_csv(input_dir, encoding):
+    """
+    出荷予定振分.csv を読み込み、EXCLUDED_OUTPUT_STORES に該当する店舗の列を空欄にして返す。
+    空欄にした列は空白列（gap）として扱われ、店舗数 N から外れる。
+    1行目（BULK/現在庫/出荷指示数 のエリア名）は列配置を保つため残す。
+    """
+    from config import EXCLUDED_OUTPUT_STORES
+    src = find_single_csv(input_dir, ["出荷予定振分"])
+    df = pd.read_csv(src, encoding=encoding, header=0, dtype=str)
+    if len(df) < 3 or not EXCLUDED_OUTPUT_STORES:
+        return df
+
+    def _name(i):
+        v = df.iat[2, i]
+        return "" if pd.isna(v) else str(v).strip()
+
+    for i in range(SHIPPING_PLAN_STORE_START, df.shape[1]):
+        name = _name(i)
+        if not name or not any(is_store_match(name, s) for s in EXCLUDED_OUTPUT_STORES):
+            continue
+        # 除外できるのはエリア末尾の店舗のみ（途中を空欄にすると店舗数の検出が狂うため）
+        if i + 1 < df.shape[1] and _name(i + 1):
+            raise AutomationError(
+                "除外店舗の位置エラー",
+                f"出荷予定振分.csv の店舗「{name}」は除外対象（config.py の EXCLUDED_OUTPUT_STORES）ですが、\n"
+                f"後ろに別の店舗「{_name(i + 1)}」の列が続いているため除外できません。\n\n"
+                "【対処方法】\n開発担当者に連絡してください。"
+            )
+        df.iloc[1:, i] = None
+    return df
+
+# ============================================================
 # CSV店舗構造の動的解析
 # ============================================================
 def parse_csv_store_structure(input_dir, encoding):
@@ -139,13 +175,12 @@ def parse_csv_store_structure(input_dir, encoding):
       - store_names: ORDERセクションの店舗名リスト (len = N)
       - store_codes: ORDERセクションの店舗コードリスト (len = N)
     """
-    src = find_single_csv(input_dir, ["出荷予定振分"])
-    df_raw = pd.read_csv(src, encoding=encoding, header=0, dtype=str)
+    df_raw = read_shipping_plan_csv(input_dir, encoding)
 
     row_names = list(df_raw.iloc[2].tolist())
     row_codes = list(df_raw.iloc[1].tolist())
 
-    BULK_STORE_START = 8
+    BULK_STORE_START = SHIPPING_PLAN_STORE_START
 
     N = 0
     for i in range(BULK_STORE_START, len(row_names)):
