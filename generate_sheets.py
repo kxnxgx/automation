@@ -358,6 +358,10 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     if not col_retail_kakubo: col_retail_kakubo  = kabusoku_start_col + N + 1
     if not col_kabusoku_zan:  col_kabusoku_zan   = kabusoku_start_col + N + 2
 
+    # 表示用の列（マイナス/R/F の右隣）: 過不足（F列の値）と出荷数（ORDERエリアの合計）
+    col_kabusoku_disp = col_kabusoku_zan + 1
+    col_ship_total    = col_kabusoku_zan + 2
+
     # --------------------------------------------------------
     # 商品マスタ (商品マスタ全項目.csv) のロード
     # --------------------------------------------------------
@@ -675,6 +679,13 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
         nwa_formula = f"IF({let_retail_kakubo}{r}<0,{let_c}{r}+{let_retail_kakubo}{r},{let_c}{r})"
         ws_order.cell(row=r, column=col_kabusoku_zan).value = f'=IF({nwa_formula}=0,"",{nwa_formula})'
 
+        # 表示用: 過不足（F列を参照。0は空欄）・出荷数（ORDERエリアの合計。0は空欄）
+        ws_order.cell(row=r, column=col_kabusoku_disp).value = f"={let_kabusoku_zan}{r}"
+        order_first_let = openpyxl.utils.get_column_letter(order_start_col)
+        order_last_let = openpyxl.utils.get_column_letter(order_end_col)
+        ship_sum = f"SUM({order_first_let}{r}:{order_last_let}{r})"
+        ws_order.cell(row=r, column=col_ship_total).value = f'=IF({ship_sum}=0,"",{ship_sum})'
+
     for c in range(1, ws_order.max_column + 1):
         ws_order.cell(row=1, column=c).value = None
         
@@ -692,13 +703,25 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
     for c in range(kabusoku_min_col, kabusoku_max_col + 1):
         col_letter = openpyxl.utils.get_column_letter(c)
         ws_order.column_dimensions[col_letter].width = 4.43
-        if c != col_kabusoku_zan:
-            ws_order.column_dimensions[col_letter].hidden = True
-            
+        # 過不足エリア〜マイナス/R/F は上司フォーマットに合わせてすべて非表示
+        ws_order.column_dimensions[col_letter].hidden = True
+
     zan_letter = openpyxl.utils.get_column_letter(col_kabusoku_zan)
-    ws_order[f"{zan_letter}3"].value = "過不足"
-    ws_order[f"{zan_letter}3"].alignment = Alignment(textRotation=255, horizontal='center', vertical='center')
-    ws_order[f"{zan_letter}3"].fill = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid")
+    ws_order.cell(row=3, column=col_kabusoku_total).value = "マイナス"
+    ws_order.cell(row=3, column=col_retail_kakubo).value  = "R"
+    ws_order.cell(row=3, column=col_kabusoku_zan).value   = "F"
+
+    # 表示用の列の見出し（過不足は赤背景）
+    align_vert_center = Alignment(textRotation=255, horizontal='center', vertical='center')
+    red_header_fill = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid")
+    for col, label, fill in ((col_kabusoku_disp, "過不足", red_header_fill),
+                             (col_ship_total,    "出荷数", None)):
+        cell = ws_order.cell(row=3, column=col)
+        cell.value = label
+        cell.alignment = align_vert_center
+        if fill:
+            cell.fill = fill
+        ws_order.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 5.86
 
     # 【修正②】条件付き書式を完全版に合わせる
     # 適用範囲: A1:A1048576（全行）、数式: BG1<0（行固定参照なし）
@@ -732,7 +755,7 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
         col_letter = openpyxl.utils.get_column_letter(c)
         ws_retail.column_dimensions[col_letter].hidden = True
 
-    extra_col_start = col_kabusoku_zan + 1
+    extra_col_start = col_ship_total + 1
     col_kibou = extra_col_start
     col_hutte = extra_col_start + 1
     col_zozo  = extra_col_start + 2
@@ -742,7 +765,7 @@ def step2_python_direct_merge(wb_retail, base_dir, input_dir, template_path, bra
 
     filter_end_letter = openpyxl.utils.get_column_letter(col_tokka)
     ws_order.auto_filter.ref = f"A3:{filter_end_letter}{lastRow}"
-    ws_order.freeze_panes = "A4"
+    ws_order.freeze_panes = "C4"  # 上司フォーマットに合わせ、A・B列と3行目までを固定
 
     print("  新規列（希望品、HUTTE、ZOZO、OIOI、特価等）のデータを書き込み中...")
     ws_order.cell(row=3, column=col_kibou).value = "希望品"
